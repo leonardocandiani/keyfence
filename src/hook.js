@@ -1,16 +1,18 @@
 'use strict';
 // Claude Code hook. One entry point, three events:
 //
-//   UserPromptSubmit  secrets pasted by the user are tainted (hash only) and the
-//                     agent is told to treat them as secrets; "block" mode
-//                     refuses the prompt instead.
+//   UserPromptSubmit  secrets pasted by the user are tainted (hash only) and, in
+//                     "capture" mode, saved to the git-ignored .env under a name
+//                     the agent uses from then on; "block" mode refuses the prompt.
+//   PreToolUse        (0) a Bash command that references a captured variable gets
+//                     its env file loaded first, so the value never appears in it;
 //   PreToolUse        (1) reading a vault file (.env, credentials, ssh keys) is
 //                     denied, because the content would land in the transcript;
 //                     (2) a tainted secret leaving the machine is denied: network
 //                     commands, inline interpreters calling HTTP, MCP tools, and
 //                     writes to git-tracked files.
-//   PostToolUse       secrets that show up in a tool's output are tainted too, so
-//                     a key the agent read by accident is protected from then on.
+//   PostToolUse       secrets that show up in a tool's output are tainted too and
+//                     replaced by their name before the agent sees the output.
 //
 // State lives in the OS temp dir, one file per session, holding SHA-256 prefixes,
 // never values. Any internal error exits 0 without output: a broken guard must
@@ -190,6 +192,7 @@ function out(obj) {
 
 function deny(reason) {
   out({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[keyfence] ${reason}` } });
+  return true;
 }
 
 function note(event, text) {
@@ -199,8 +202,33 @@ function note(event, text) {
 // ---------------------------------------------------------------------------
 // events
 
+// Capture mode: save the value to the env file and tell the agent its name.
+// Known formats and labeled values are saved; a classifier verdict only when it
+// points at a single word. High-entropy guesses stay tainted, not saved.
+function captured(d, prompt, findings, items, cfg, ttl) {
+  const classified = items.filter((i) => i.rule === 'classifier');
+  const keep = [...findings, ...(classified.length === 1 ? classified : [])];
+  if (!keep.length) return false;
+  try {
+    const { save } = require('./capture');
+    const r = save(keep, prompt, d.cwd, cfg);
+    mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
+    const names = r.saved.map((x) => `$${x.name} (${x.rule}${x.reused ? ', already saved' : ''})`).join(', ');
+    const where = r.project ? `the project's git-ignored ${r.file}` : `${r.file} (outside the repo)`;
+    note('UserPromptSubmit',
+      `This message contains a real credential. keyfence saved it to ${where} as ${names}. ` +
+      'Work with it by name from now on: reference the variable in commands (keyfence loads it into any Bash command that uses it) or load the file in code. ' +
+      'Never repeat the value in replies, code, comments, logs or commit messages.');
+    return true;
+  } catch {
+    return false; // fall back to warn
+  }
+}
+
 async function onPrompt(d, cfg) {
   const prompt = String(d.prompt || '').slice(0, MAX_SCAN);
+  // Background-task notifications arrive as prompts; they carry ids and paths, not secrets.
+  if (/^\s*<task-notification>/.test(prompt)) return;
   const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt });
   let items = [...findings, ...ambiguous];
 
@@ -221,6 +249,7 @@ async function onPrompt(d, cfg) {
     out({ decision: 'block', reason: `[keyfence] This message contains a credential (${kinds}). Send it again without the value: point to the file that holds it, or store it first and reference the variable name.` });
     return;
   }
+  if (cfg.promptMode === 'capture' && captured(d, prompt, findings, items, cfg, ttl)) return;
   note('UserPromptSubmit',
     `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
     'store it only in a git-ignored file or a secret store and reference it by variable name; do not send it to any external service unless the user asks for that in this turn.');
@@ -262,7 +291,7 @@ function toolText(tool, input) {
   return [input.content, input.new_string, input.edits && JSON.stringify(input.edits), input.new_source].filter(Boolean).join('\n');
 }
 
-function onPreTool(d, cfg) {
+function judge(d, cfg) {
   const tool = String(d.tool_name || '');
   const input = d.tool_input || {};
 
@@ -314,15 +343,72 @@ function onPreTool(d, cfg) {
   }
 }
 
+// A Bash command that uses a captured variable gets the env file loaded first,
+// so the agent writes `$META_ACCESS_TOKEN` and never handles the value.
+function inject(d, cfg) {
+  if (!cfg.capture.inject || d.tool_name !== 'Bash') return;
+  const input = d.tool_input || {};
+  const cmd = String(input.command || '');
+  const list = readState(statePath(d.session_id), cfg.ttlHours * 3600e3);
+  const files = [];
+  for (const x of list) {
+    if (x.d !== 'store' || !new RegExp(`\\$\\{?${x.n}\\b`).test(cmd)) continue;
+    const loads = new RegExp(`(?:^|[;&|\\s])(?:source|\\.)\\s+['"]?[^\\s;&|'"]*${reEscape(path.basename(x.file))}['"]?(?=$|[\\s;&|])`);
+    if (!loads.test(cmd) && !files.includes(x.file)) files.push(x.file);
+  }
+  if (!files.length) return;
+  const q = (f) => `'${f.replace(/'/g, "'\\''")}'`;
+  const prefix = `set -a; ${files.map((f) => `. ${q(f)}`).join('; ')}; set +a; `;
+  out({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...input, command: prefix + cmd } } });
+}
+
+function onPreTool(d, cfg) {
+  if (judge(d, cfg)) return;
+  inject(d, cfg);
+}
+
+// Every string in a tool response, with each value in `hide` replaced.
+function scrub(v, hide) {
+  if (typeof v === 'string') {
+    let t = v;
+    for (const [val, label] of hide) t = t.split(val).join(label);
+    return t;
+  }
+  if (Array.isArray(v)) return v.map((x) => scrub(x, hide));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x, hide)]));
+  return v;
+}
+
 function onPostTool(d, cfg) {
   const r = d.tool_response;
   const text = typeof r === 'string' ? r : JSON.stringify(r || '');
   if (!text) return;
+  const ttl = cfg.ttlHours * 3600e3;
   const { findings } = scan(text.slice(0, MAX_SCAN));
-  if (!findings.length) return;
-  const added = taint(d.session_id, findings, `tool:${d.tool_name}`, cfg.ttlHours * 3600e3);
-  if (!added) return;
+  const added = findings.length ? taint(d.session_id, findings, `tool:${d.tool_name}`, ttl) : 0;
+
+  // Values to hide: new findings, plus any piece whose hash is remembered.
+  const hide = new Map();
+  if (cfg.redactOutput) {
+    const list = readState(statePath(d.session_id), ttl);
+    const names = new Map(list.filter((x) => x.d === 'store').map((x) => [x.h, x.n]));
+    const rules = new Map(list.filter((x) => x.h && !x.d).map((x) => [x.h, x.rule]));
+    const label = (v, rule) => { const h = hash(v); return names.has(h) ? `⟨${names.get(h)}⟩` : `⟨keyfence:${rules.get(h) || rule}⟩`; };
+    for (const f of findings) hide.set(f.value, label(f.value, f.rule));
+    if (rules.size) {
+      for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && text.includes(p)) hide.set(p, label(p));
+    }
+  }
   const kinds = [...new Set(findings.map((f) => f.rule))].join(', ');
+  if (hide.size) {
+    out({ hookSpecificOutput: {
+      hookEventName: 'PostToolUse',
+      updatedToolOutput: scrub(r, hide),
+      additionalContext: `[keyfence] The output of ${d.tool_name} contained a credential; keyfence replaced it with ${[...new Set(hide.values())].join(', ')} before you saw it. Refer to it by that name; do not try to print it another way.`,
+    } });
+    return;
+  }
+  if (!added) return;
   note('PostToolUse',
     `The output of ${d.tool_name} contained a credential (${kinds}). It is now in this transcript: do not repeat it, and tell the user it may need rotation. ` +
     'It is protected from being sent out or written to tracked files from now on.');

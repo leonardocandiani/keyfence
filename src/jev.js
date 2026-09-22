@@ -21,13 +21,20 @@ function apiKey(cfg) {
   }
 }
 
+// Design tokens and code identifiers: `--color-primary-500`, `max-width`, `primary-500`.
+// Labels (`senha:`), emails and URLs are context, not the secret itself.
+const looksLikeIdentifier = (w) => w.startsWith('--') || /^[a-z]+(?:[-_.](?:[a-z]+|[0-9]+))+$/.test(w)
+  || /[:=]$/.test(w) || /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(w) || w.startsWith('http://') || w.startsWith('https://')
+  || w.startsWith('/') || w.startsWith('~/');
+
 // A word is a candidate if it could plausibly be a credential.
 function isCandidate(w) {
-  if (w.length < 6 || w.length > 256) return false;
+  if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w)) return false;
   const letters = /[A-Za-z]/.test(w);
   const digits = /[0-9]/.test(w);
   const symbols = /[^A-Za-z0-9]/.test(w);
-  return (letters && digits) || (letters && symbols && w.length >= 8) || entropy(w) >= 3.5;
+  if (digits && (letters || symbols)) return true;
+  return (letters && symbols && w.length >= 8) || entropy(w) >= 3.5;
 }
 
 function mask(text) {

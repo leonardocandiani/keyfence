@@ -6,7 +6,7 @@
 
 <!-- Typing -->
 <div align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=Keeps+secrets+inside+your+coding+agent+session;Remembers+every+key+it+sees%2C+by+hash+only;Blocks+it+from+curl%2C+commits%2C+MCP+and+tracked+files;53+provider+formats%2C+zero+dependencies%2C+7+ms+per+call" alt="Keeps secrets inside your coding agent session" />
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=Paste+a+token+in+the+chat+and+keep+working;Remembers+every+key+it+sees%2C+by+hash+only;Blocks+it+from+curl%2C+commits%2C+MCP+and+tracked+files;53+provider+formats%2C+zero+dependencies%2C+7+ms+per+call" alt="Paste a token in the chat and keep working" />
 </div>
 
 <div align="center">
@@ -43,8 +43,10 @@
 
 ```yaml
 product: Claude Code hook that stops credentials from leaving an agent session
+capture: a token pasted in the chat is saved to the git-ignored .env under its SDK name and used by name
 in:      secrets pasted in the prompt or printed by any tool are remembered as SHA-256 prefixes, never values
 out:     denied to the network, commits, non-local tools, source files and git-tracked files
+output:  tool output reaches the agent with the variable name in place of the value
 vault:   reading .env, SSH keys or credential files is denied; counting and listing names still works
 detects: 53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier
 privacy: the optional jev classifier only ever sees the shape of a value (aaa999), never the value
@@ -72,7 +74,25 @@ next tool call of every session, running ones included.
 
 ## What it does
 
-keyfence works in three layers.
+Paste a token in the chat and keep working:
+
+```
+you:    here is the Meta token: EAAG...
+agent:  (told: saved to .env as $META_ACCESS_TOKEN, use it by name)
+agent:  curl https://graph.facebook.com/v21.0/me -H "Authorization: Bearer $META_ACCESS_TOKEN"
+        keyfence loads .env into that command; the value never appears in it
+output: {"token": "⟨META_ACCESS_TOKEN⟩", ...}
+        any output that contains the value reaches the agent with the name instead
+```
+
+The token is saved the moment you send the message, to the repo's `.env` when
+git ignores it, otherwise to a private `~/.config/keyfence/secrets.env` (both
+`0600`). It gets the name its SDK expects (`META_ACCESS_TOKEN`,
+`STRIPE_SECRET_KEY`, `GITHUB_TOKEN`...), or the label you gave it
+(`MY_KEY=...`). The same token pasted twice is saved once; a second token for
+the same provider becomes `_2` and never overwrites the first.
+
+Underneath, keyfence works in three layers.
 
 **1. It keeps secrets out of the transcript in the first place.** Reading a
 vault file (`.env`, `~/.aws/credentials`, SSH keys, `.npmrc`, `.pgpass`, the
@@ -107,8 +127,10 @@ credential files are the exception on purpose: `source .env` followed by a call
 that uses its variable is how a key is meant to be used. Sending a vault file
 itself (`curl -d @.env`) is denied.
 
-When a secret is pasted, the agent is also told to treat it as one: never echo
-it, store it in an ignored file, reference it by variable name.
+Tool output is cleaned before the agent sees it: a remembered secret, or any
+new one keyfence recognizes, is replaced by its variable name or
+`⟨keyfence:rule⟩`. A key that a command prints by accident never reaches the
+model.
 
 ## What it detects
 
@@ -140,10 +162,11 @@ Supabase `anon` JWTs are skipped: they are public by design.
 No text-based guard is complete, and this one says where it is blind:
 
 - **Images.** A key in a screenshot is invisible to it.
-- **Your message itself.** A Claude Code hook cannot rewrite the prompt, so a
-  pasted secret is in the local transcript the moment you press Enter. keyfence
-  protects where it goes next. Use `promptMode: "block"` to refuse such prompts
-  instead.
+- **Your message itself.** A Claude Code hook cannot rewrite the prompt, so the
+  message that carries a pasted token reaches the model once, as you wrote it.
+  keyfence saves it and protects every step after that. For zero exposure, use
+  `promptMode: "block"`: the message is refused before the model sees it (Claude
+  Code still keeps the original in the local session log).
 - **The agent's reply.** If the agent prints a secret in its answer, that text is
   already on screen; the hook only sees tool calls.
 - **Deliberate evasion.** Direct copies into a variable or a file are followed,
@@ -168,7 +191,9 @@ Optional, at `~/.config/keyfence/config.json` (or the path in
 
 ```json
 {
-  "promptMode": "warn",
+  "promptMode": "capture",
+  "capture": { "target": "project", "globalFile": "~/.config/keyfence/secrets.env", "inject": true },
+  "redactOutput": true,
   "ttlHours": 12,
   "taintAmbiguousFromPrompt": true,
   "vault": { "extraPatterns": ["(^|/)my-service\\.plist$"] },
@@ -180,7 +205,8 @@ Optional, at `~/.config/keyfence/config.json` (or the path in
 }
 ```
 
-`keyfence config` shows what is in effect.
+`promptMode` is `capture` (save and go on), `warn` (only protect) or `block`
+(refuse the message). `keyfence config` shows what is in effect.
 
 ## The optional classifier
 
@@ -225,9 +251,9 @@ npm test
 ```
 
 - `test/detect.test.js`: every provider format caught in every one of N random
-  rounds (default 50, `ROUNDS=300` for more), 41 negatives taken from real code,
+  rounds (default 50, `ROUNDS=300` for more), 42 negatives taken from real code,
   and the high-entropy layer.
-- `test/hook.test.js`: 59 end-to-end scenarios running the real hook binary
+- `test/hook.test.js`: 81 end-to-end scenarios running the real hook binary
   inside a throwaway git repo, including evasion attempts (base64, scripts
   outside the repo, WebFetch, commit messages, unknown tools), plus latency.
 - `test/cli.test.js`: CLI contract.

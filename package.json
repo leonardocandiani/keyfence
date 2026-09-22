@@ -1,6 +1,6 @@
 {
   "name": "keyfence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keeps secrets from leaking out of AI coding agent sessions: taints every credential it sees and blocks it from leaving the machine.",
   "license": "MIT",
   "author": "Leonardo Candiani",

@@ -4,13 +4,21 @@
 // TYPESAFE_API_KEY is set) checks the classifier actually tells disclosure from
 // ordinary talk using shapes alone.
 
-const { mask, classify } = require('../src/jev');
+const { mask, classify, isCandidate } = require('../src/jev');
 const { r } = require('./gen');
 
 const cfg = { jev: { enabled: true, endpoint: 'https://example.invalid', apiKeyEnv: 'KEYFENCE_TEST_KEY', model: 'jev-latest', timeoutMs: 2500, threshold: 0.18 } };
 const realFetch = global.fetch;
 const cases = [];
 const check = (name, ok) => cases.push({ name, ok });
+
+// Context words are never sent as candidates: labels, emails, URLs, design tokens.
+for (const w of ['usuario:', 'senha=', 'leo@empresa.com', 'https://painel.io/x', '--color-primary-500', 'primary-500']) {
+  check(`not a candidate: ${w}`, !isCandidate(w));
+}
+check('a mixed password is a candidate', isCandidate('Kq9zPm2x!'));
+check('digits with a symbol is a candidate', isCandidate('88776655*'));
+check('a file path is not a candidate', !isCandidate('/private/tmp/task-1.output'));
 
 (async () => {
   // --- masking ---------------------------------------------------------------

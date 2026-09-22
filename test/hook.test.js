@@ -16,7 +16,9 @@ fs.mkdirSync(repo);
 execFileSync('git', ['init', '-q'], { cwd: repo });
 fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n');
 const cfgFile = path.join(tmp, 'config.json');
-fs.writeFileSync(cfgFile, JSON.stringify({ jev: { enabled: false } }));
+const globalEnv = path.join(tmp, 'global', 'secrets.env');
+const BASE = { jev: { enabled: false }, capture: { globalFile: globalEnv } };
+fs.writeFileSync(cfgFile, JSON.stringify(BASE));
 
 const SID = `test-${process.pid}-${Date.now()}`;
 const env = { ...process.env, KEYFENCE_CONFIG: cfgFile };
@@ -113,10 +115,71 @@ check('curl with token from tool output', decision(pre('Bash', { command: `curl 
 check('fresh GitHub token into tracked file', decision(pre('Write', { file_path: path.join(repo, 'ci.yml'), content: `token: ${gen('github')}` }).out), 'deny');
 check('fresh token into .example is fine', decision(pre('Write', { file_path: path.join(repo, 'config.example'), content: `token: ${gen('github')}` }).out), 'pass');
 
+// --- capture: a token pasted in the chat goes to .env and the session goes on --
+const capRepo = path.join(tmp, 'caprepo');
+fs.mkdirSync(capRepo);
+execFileSync('git', ['init', '-q'], { cwd: capRepo });
+fs.writeFileSync(path.join(capRepo, '.gitignore'), '.env\n');
+const capEnv = path.join(capRepo, '.env');
+const readEnv = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+const count = (hay, needle) => hay.split(needle).length - 1;
+const metaTok = gen('meta');
+const cp = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `segue o token da meta: ${metaTok}` });
+check('capture: the prompt goes on (no block)', decision(cp.out), 'context');
+check('capture: agent is told the variable name', JSON.stringify(cp.out).includes('$META_ACCESS_TOKEN'), true);
+check('capture: context never echoes the value', JSON.stringify(cp.out).includes(metaTok), false);
+check('capture: value saved to the project .env', readEnv(capEnv).includes(`META_ACCESS_TOKEN=${metaTok}\n`), true);
+check('capture: .env is private (0600)', (fs.statSync(capEnv).mode & 0o777).toString(8), '600');
+const again = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `de novo: ${metaTok}` });
+check('capture: same token twice is saved once', count(readEnv(capEnv), metaTok), 1);
+check('capture: second paste reuses the name', JSON.stringify(again.out).includes('already saved'), true);
+const meta2 = gen('meta');
+run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `outro token da meta ${meta2}` });
+check('capture: a second token never overwrites the first', readEnv(capEnv).includes(`META_ACCESS_TOKEN_2=${meta2}\n`) && readEnv(capEnv).includes(`META_ACCESS_TOKEN=${metaTok}\n`), true);
+const labeledTok = gen('stripe');
+run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `STRIPE_TEST_KEY=${labeledTok}` });
+check('capture: a label in the prompt names the variable', readEnv(capEnv).includes(`STRIPE_TEST_KEY=${labeledTok}\n`), true);
+const pw = `Kq${gen('github').slice(4, 12)}9!`;
+run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `login: leo@empresa.com\nsenha: ${pw}` });
+check('capture: a labeled password is saved as PASSWORD', readEnv(capEnv).includes(`PASSWORD='${pw}'`), true);
+const { nameFor } = require('../src/capture');
+check('capture: "senha da wavoip" names WAVOIP_PASSWORD', nameFor({ rule: 'classifier', value: 'Zz887766*' }, 'login e senha da wavoip pra tu usar\n\nmkt@empresa.com\nZz887766*'), 'WAVOIP_PASSWORD');
+check('capture: "a chave do sistema" names SISTEMA_API_KEY', nameFor({ rule: 'classifier', value: 'Kq9zPm2x77' }, 'a chave do sistema de cobrança é Kq9zPm2x77'), 'SISTEMA_API_KEY');
+const note1 = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `<task-notification>\n<task-id>${gen('github').slice(4, 14)}</task-id>\n<output-file>/private/tmp/x/tasks/abc.output</output-file>` });
+check('task notifications are not scanned', decision(note1.out), 'pass');
+const openRepo = path.join(tmp, 'openrepo');
+fs.mkdirSync(openRepo);
+execFileSync('git', ['init', '-q'], { cwd: openRepo });
+const ghTok = gen('github');
+run({ hook_event_name: 'UserPromptSubmit', cwd: openRepo, prompt: `token do github ${ghTok}` });
+check('capture: repo that does not ignore .env is never written', fs.existsSync(path.join(openRepo, '.env')), false);
+check('capture: falls back to the private global file', readEnv(globalEnv).includes(`GITHUB_TOKEN=${ghTok}\n`), true);
+
+const useCmd = 'curl https://graph.facebook.com/v21.0/me -H "Authorization: Bearer $META_ACCESS_TOKEN"';
+const inj = pre('Bash', { command: useCmd }).out;
+const injected = inj && inj.hookSpecificOutput && inj.hookSpecificOutput.updatedInput && inj.hookSpecificOutput.updatedInput.command;
+check('inject: command using the variable gets the env loaded', Boolean(injected) && injected.startsWith(`set -a; . '${fs.realpathSync(capEnv)}'; set +a; `) && injected.endsWith(useCmd), true);
+check('inject: the rewritten command never contains the value', String(injected).includes(metaTok), false);
+const lenCmd = pre('Bash', { command: 'printf %s "$META_ACCESS_TOKEN" | wc -c' }).out.hookSpecificOutput.updatedInput.command;
+check('inject: the variable really holds the token at run time', execFileSync('bash', ['-c', lenCmd], { encoding: 'utf8' }).trim(), String(metaTok.length));
+const hasUpdate = (o) => Boolean(o && o.hookSpecificOutput && o.hookSpecificOutput.updatedInput);
+check('inject: skipped when the command already loads the file', hasUpdate(pre('Bash', { command: `set -a; . ${capEnv}; echo "$META_ACCESS_TOKEN" | wc -c` }).out), false);
+check('inject: skipped with source ./.env too', hasUpdate(pre('Bash', { command: 'source ./.env && echo "$META_ACCESS_TOKEN" | wc -c' }).out), false);
+check('inject: nothing for unrelated variables', hasUpdate(pre('Bash', { command: 'echo "$HOME $META_ACCESS_TOKEN_X"' }).out), false);
+
+const red = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'x' }, tool_response: { stdout: `token=${metaTok}\nok`, stderr: '' } }).out;
+const redOut = red && red.hookSpecificOutput && red.hookSpecificOutput.updatedToolOutput;
+check('redact: captured token in output becomes its name', redOut && redOut.stdout, 'token=⟨META_ACCESS_TOKEN⟩\nok');
+check('redact: output shape is kept', redOut && redOut.stderr, '');
+const freshGh = gen('github');
+const red2 = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'x' }, tool_response: { stdout: `GH=${freshGh}` } }).out;
+check('redact: a new token in output is hidden too', JSON.stringify(red2).includes(freshGh), false);
+check('redact: nothing to hide leaves output alone', decision(run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'a.txt\nb.txt' } }).out), 'pass');
+
 // --- block mode ------------------------------------------------------------
-fs.writeFileSync(cfgFile, JSON.stringify({ promptMode: 'block' }));
+fs.writeFileSync(cfgFile, JSON.stringify({ ...BASE, promptMode: 'block' }));
 check('block mode refuses prompt', decision(run({ hook_event_name: 'UserPromptSubmit', prompt: `here ${gen('openai')}` }).out), 'block');
-fs.writeFileSync(cfgFile, JSON.stringify({}));
+fs.writeFileSync(cfgFile, JSON.stringify(BASE));
 
 // --- robustness ------------------------------------------------------------
 const bad = spawnSync(process.execPath, [HOOK], { input: 'not json', env, encoding: 'utf8' });

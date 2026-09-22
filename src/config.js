@@ -8,9 +8,21 @@ const path = require('path');
 
 const DEFAULTS = {
   // What happens when a secret is pasted in the prompt:
-  //   "warn"  -> register it (hash only) and tell the agent to treat it as secret
-  //   "block" -> refuse the prompt; the user re-sends without the value
-  promptMode: 'warn',
+  //   "capture" -> save it to an env file under a name and let the session go on
+  //                using the name (the default)
+  //   "warn"    -> register it (hash only) and tell the agent to treat it as secret
+  //   "block"   -> refuse the prompt; the user re-sends without the value
+  promptMode: 'capture',
+  capture: {
+    // "project": the repo's .env when git ignores it, else globalFile.
+    // "global": always globalFile.
+    target: 'project',
+    globalFile: '~/.config/keyfence/secrets.env',
+    // Load captured variables into a Bash command that references them.
+    inject: true,
+  },
+  // Replace remembered secrets in tool output before the agent sees it.
+  redactOutput: true,
   // Hours a tainted secret stays protected in a session.
   ttlHours: 12,
   // Taint high-entropy strings with no label or known prefix when they appear in
@@ -30,6 +42,7 @@ const DEFAULTS = {
       '(^|/)\\.docker/config\\.json$',
       '(^|/)application_default_credentials\\.json$',
       '(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[A-Za-z0-9_.-]+)?$',
+      '(^|/)\\.config/keyfence/secrets\\.env$',
     ],
     extraPatterns: [],
   },

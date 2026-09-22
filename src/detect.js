@@ -15,7 +15,7 @@ const { rules } = require('./rules');
 const LABEL = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)([^\s"'`,;()[\]{}<>]{8,})(\(?)/gi;
 
 // Values that look like placeholders, references or code, never a real secret.
-const PLACEHOLDER = /^(?:[xX*.#-]{3,}$|<[^>]*>?$|\{\{.*\}\}$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$|\$\(|process\.env|os\.environ|env\(|getenv|import\.meta|secrets\.|vault:|op:\/\/|ssm:|arn:aws|(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)$|(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-])/i;
+const PLACEHOLDER = /^(?:[xX*.#-]{3,}$|<[^>]*>?$|⟨|\{\{.*\}\}$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$|\$\(|process\.env|os\.environ|env\(|getenv|import\.meta|secrets\.|vault:|op:\/\/|ssm:|arn:aws|(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)$|(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-])/i;
 
 function entropy(s) {
   if (!s) return 0;
