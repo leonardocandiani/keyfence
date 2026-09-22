@@ -1,0 +1,35 @@
+{
+  "name": "keyfence",
+  "desc": "Keeps secrets from leaking out of AI coding agent sessions",
+  "lang": "en",
+  "palette": "candiani",
+  "author": "candiani",
+  "license": "MIT",
+  "typing": [
+    "Keeps secrets inside your coding agent session",
+    "Remembers every key it sees, by hash only",
+    "Blocks it from curl, commits, MCP and tracked files",
+    "53 provider formats, zero dependencies, 7 ms per call"
+  ],
+  "tagline": "A Claude Code hook that watches every place a secret can come in and every place it can go out.",
+  "badges": [
+    "license",
+    "claude",
+    "ci:test.yml",
+    { "label": "node", "msg": "18+ zero deps", "logo": "nodedotjs" },
+    "prs"
+  ],
+  "pitch": "**keyfence** treats every credential that enters an agent session as tainted: pasted in the prompt, printed by a command, or read from a file, it is remembered by hash and denied at the exit, whether that exit is a `curl`, a commit, an MCP tool or a hardcoded config.",
+  "notice": "Not affiliated with or endorsed by Anthropic. \"Claude\" and \"Claude Code\" are Anthropic trademarks.",
+  "what": {
+    "product": "Claude Code hook that stops credentials from leaving an agent session",
+    "in": "secrets pasted in the prompt or printed by any tool are remembered as SHA-256 prefixes, never values",
+    "out": "denied to the network, commits, non-local tools, source files and git-tracked files",
+    "vault": "reading .env, SSH keys or credential files is denied; counting and listing names still works",
+    "detects": "53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier",
+    "privacy": "the optional jev classifier only ever sees the shape of a value (aaa999), never the value",
+    "speed": "plain Node, no dependencies, about 7 ms per tool call",
+    "install": "npm install -g keyfence · keyfence install",
+    "license": "MIT"
+  }
+}

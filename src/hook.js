@@ -1,0 +1,347 @@
+'use strict';
+// Claude Code hook. One entry point, three events:
+//
+//   UserPromptSubmit  secrets pasted by the user are tainted (hash only) and the
+//                     agent is told to treat them as secrets; "block" mode
+//                     refuses the prompt instead.
+//   PreToolUse        (1) reading a vault file (.env, credentials, ssh keys) is
+//                     denied, because the content would land in the transcript;
+//                     (2) a tainted secret leaving the machine is denied: network
+//                     commands, inline interpreters calling HTTP, MCP tools, and
+//                     writes to git-tracked files.
+//   PostToolUse       secrets that show up in a tool's output are tainted too, so
+//                     a key the agent read by accident is protected from then on.
+//
+// State lives in the OS temp dir, one file per session, holding SHA-256 prefixes,
+// never values. Any internal error exits 0 without output: a broken guard must
+// not stall the agent.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+const { scan, shape } = require('./detect');
+const config = require('./config');
+
+const MAX_SCAN = 2 * 1024 * 1024;
+const NETWORK = /\b(curl|wget|http|https|xh|nc|ncat|socat|telnet|ftp|sftp|scp|rsync|ssh|gh\s|git\s+(?:commit|push|tag|notes|send-email)|aws\s|az\s|gcloud\s|doctl\s|vercel\s|flyctl\s|nc\s)\b|\b(node|bun|deno|python3?|ruby|php|perl)\b[^|;&]*\b(fetch|requests?|urllib|httpx|aiohttp|axios|got|undici|http\.request|https\.request|net\/http|file_get_contents|XMLHttpRequest|LWP|socket)\b/i;
+const READER = /\b(cat|bat|less|more|head|tail|grep|egrep|fgrep|rg|ag|sed|awk|jq|yq|strings|xxd|hexdump|od|plutil|defaults\s+read|base64|nl|tac|python3?\s+-c|node\s+-e|ruby\s+-e|perl\s+-[en])\b/;
+
+// Tools that stay on this machine. Anything else (WebFetch, WebSearch, MCP,
+// artifact publishing, tools added in future versions) is treated as leaving it.
+const LOCAL_TOOLS = new Set(['Bash', 'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookRead', 'Glob', 'Grep',
+  'LS', 'Agent', 'Task', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskStop', 'TaskOutput',
+  'Skill', 'ToolSearch', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'Monitor', 'LSP', 'KillShell', 'BashOutput']);
+// Writing a secret into source code is a leak waiting to happen, tracked or not:
+// the script gets run, copied, pasted. Secrets belong in env files or stores.
+const CODE_FILE = /\.(sh|bash|zsh|fish|js|mjs|cjs|ts|tsx|jsx|py|rb|php|pl|go|rs|java|kt|swift|cs|lua|ps1|bat|cmd|html|vue|svelte|yml|yaml|toml|json|md|txt|ipynb)$/i;
+
+// Read forms that never print a value: counting, listing names, testing presence.
+// `grep -c KEY .env` is fine; `grep KEY .env` prints the line.
+const SAFE_READ = [
+  /\bgrep\b(?=[^|;&]*\s-[a-zA-Z]*[clqL])/, // grep -c / -l / -q / -L
+  /\bjq\b[^|;&]*['"]\s*(?:keys|keys_unsorted|length|type|has\([^)]*\))\s*['"]/, // jq 'keys'
+  /\bcut\b(?=[^|;&]*-d\s*['"]?=)(?=[^|;&]*-f\s*1\b)/, // cut -d= -f1
+  /\bawk\b(?=[^|;&]*-F\s*['"]?=)[^|;&]*\{\s*print\s+\$1\s*\}/, // awk -F= '{print $1}'
+];
+
+// A tainted value copied into a shell variable or a scratch file is still the
+// secret: `export K=<key>` then `curl -d "$K"` must fail like the literal does.
+// Env and credential files are the sanctioned store and are not marked, since
+// loading a key from .env to call its own API is the intended use.
+const ASSIGN = /^\s*(?:export\s+|declare\s+(?:-\w+\s+)*|local\s+|readonly\s+|typeset\s+)?([A-Za-z_][A-Za-z0-9_]*)=/;
+const REDIRECT = /(?:\d?>>?|\btee\s+(?:-a\s+)?)\s*([^\s;|&<>'"`]+)/g;
+// Forms that hand a file's content to a network command: curl -d @f, < f, -T f.
+const SENDS_FILE = /(?:@|<\s*|-T\s+|--upload-file\s+)([^\s;|&<>'"`]+)/g;
+
+const hash = (v) => crypto.createHash('sha256').update(String(v)).digest('hex').slice(0, 32);
+
+// ---------------------------------------------------------------------------
+// state
+
+function statePath(sessionId) {
+  const id = String(sessionId || 'no-session').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+  return path.join(os.tmpdir(), `keyfence-${id}.json`);
+}
+
+function readState(file, ttlMs) {
+  try {
+    const now = Date.now();
+    const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(list) ? list.filter((x) => now - (x.ts || 0) < ttlMs) : [];
+  } catch {
+    return [];
+  }
+}
+
+function taint(sessionId, items, source, ttlMs) {
+  const file = statePath(sessionId);
+  const list = readState(file, ttlMs);
+  const seen = new Set(list.map((x) => x.h));
+  let added = 0;
+  for (const it of items) {
+    const h = hash(it.value);
+    if (seen.has(h)) continue;
+    list.push({ h, rule: it.rule, src: source, ts: Date.now() });
+    seen.add(h);
+    added++;
+  }
+  try {
+    fs.writeFileSync(file, JSON.stringify(list), { mode: 0o600 });
+  } catch { /* best effort */ }
+  return added;
+}
+
+// Every substring that could be a secret, split the ways a value gets glued to
+// its surroundings: quotes, separators, escapes, `KEY=value`, `Bearer value`.
+function pieces(text) {
+  const raw = String(text).slice(0, MAX_SCAN).match(/[^\s'"`,;()[\]{}<>\\]{8,}/g) || [];
+  const out = new Set();
+  for (const t of raw) {
+    out.add(t);
+    for (const p of t.split(/[=:@]/)) if (p.length >= 8) out.add(p);
+    // base64 / base64url of a secret: decode and add the decoded pieces too
+    if (t.length >= 16 && /^[A-Za-z0-9+/_-]+={0,2}$/.test(t)) {
+      try {
+        const dec = Buffer.from(t.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+        if (/^[\x20-\x7e]+$/.test(dec)) for (const q of dec.split(/[\s'"`,;:=@]+/)) if (q.length >= 8) out.add(q);
+      } catch { /* not base64 */ }
+    }
+    if (out.size > 20000) break;
+  }
+  return out;
+}
+
+function findTainted(text, list) {
+  if (!list.length || !text) return null;
+  const byHash = new Map(list.filter((x) => x.h).map((x) => [x.h, x.rule]));
+  for (const p of pieces(text)) {
+    const rule = byHash.get(hash(p));
+    if (rule) return { rule, shape: shape(p) };
+  }
+  return null;
+}
+
+function mark(sessionId, items, ttlMs) {
+  const file = statePath(sessionId);
+  const list = readState(file, ttlMs);
+  const seen = new Set(list.map((x) => `${x.d}:${x.n}`));
+  for (const it of items) {
+    if (seen.has(`${it.d}:${it.n}`)) continue;
+    list.push({ ...it, ts: Date.now() });
+    seen.add(`${it.d}:${it.n}`);
+  }
+  try {
+    fs.writeFileSync(file, JSON.stringify(list), { mode: 0o600 });
+  } catch { /* best effort */ }
+}
+
+// Variables and files a local command or write is about to fill with a tainted value.
+function copiesOf(tool, input, file, list, cfg) {
+  const isStore = (p) => cfg._vault.some((re) => re.test(p));
+  const out = [];
+  if (tool === 'Bash') {
+    const cmd = String(input.command || '');
+    for (const seg of cmd.split(/\|\||&&|[;\n]/)) {
+      const hit = findTainted(seg, list);
+      const m = hit && ASSIGN.exec(seg);
+      if (m) out.push({ d: 'var', n: m[1], rule: hit.rule });
+    }
+    const hit = findTainted(cmd, list);
+    if (hit) {
+      for (const [, t] of cmd.matchAll(REDIRECT)) {
+        if (!t.startsWith('&') && t !== '/dev/null' && !isStore(t)) out.push({ d: 'file', n: t, rule: hit.rule });
+      }
+    }
+  } else if (file && !isStore(file)) {
+    const hit = findTainted(toolText(tool, input), list);
+    if (hit) out.push({ d: 'file', n: file, rule: hit.rule });
+  }
+  return out;
+}
+
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function mentionsFile(text, p) {
+  if (text.includes(p)) return true;
+  const base = p.split('/').pop();
+  return base.length >= 4 && new RegExp(`(^|[\\s@<'"=/])${reEscape(base)}(?=$|[\\s'"\`);|&])`).test(text);
+}
+
+// A network command that uses a marked copy, or hands a vault file to the network.
+function copyLeaving(text, list, cfg) {
+  for (const x of list) {
+    if (x.d === 'var' && new RegExp(`\\$\\{?${x.n}\\b`).test(text)) return `${x.rule}, copied into $${x.n}`;
+    if (x.d === 'file' && mentionsFile(text, x.n)) return `${x.rule}, copied into ${x.n}`;
+  }
+  for (const [, t] of stripHeredocs(text).matchAll(SENDS_FILE)) {
+    if (cfg._vault.some((re) => re.test(t))) return `the content of ${t}`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// output
+
+function out(obj) {
+  process.stdout.write(JSON.stringify(obj));
+}
+
+function deny(reason) {
+  out({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[keyfence] ${reason}` } });
+}
+
+function note(event, text) {
+  out({ hookSpecificOutput: { hookEventName: event, additionalContext: `[keyfence] ${text}` } });
+}
+
+// ---------------------------------------------------------------------------
+// events
+
+async function onPrompt(d, cfg) {
+  const prompt = String(d.prompt || '').slice(0, MAX_SCAN);
+  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt });
+  let items = [...findings, ...ambiguous];
+
+  if (cfg.jev.enabled) {
+    const { classify } = require('./jev');
+    const verdict = await classify(prompt, cfg);
+    if (verdict && verdict.isSecret) {
+      items = items.concat(verdict.candidates.map((v) => ({ value: v, rule: 'classifier' })));
+    }
+  }
+  if (!items.length) return;
+
+  const ttl = cfg.ttlHours * 3600e3;
+  taint(d.session_id, items, 'prompt', ttl);
+  const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
+
+  if (cfg.promptMode === 'block') {
+    out({ decision: 'block', reason: `[keyfence] This message contains a credential (${kinds}). Send it again without the value: point to the file that holds it, or store it first and reference the variable name.` });
+    return;
+  }
+  note('UserPromptSubmit',
+    `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
+    'store it only in a git-ignored file or a secret store and reference it by variable name; do not send it to any external service unless the user asks for that in this turn.');
+}
+
+// A heredoc body is data being written, not a command being run. Documentation
+// that mentions a vault file must not count as reading it.
+function stripHeredocs(cmd) {
+  return cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, '<<heredoc');
+}
+
+function vaultTarget(tool, input, cfg) {
+  const hit = (p) => cfg._vault.some((re) => re.test(p));
+  if (tool === 'Read' || tool === 'NotebookRead' || tool === 'Grep') {
+    const p = String(input.file_path || input.notebook_path || input.path || '');
+    return hit(p) ? p : null;
+  }
+  if (tool !== 'Bash') return null;
+  // Judge each segment on its own: `grep -c K .env && cat .env` must still fail.
+  for (const seg of stripHeredocs(String(input.command || '')).split(/\|\||&&|[|;&\n]/)) {
+    if (!READER.test(seg) || SAFE_READ.some((re) => re.test(seg))) continue;
+    for (const tok of seg.split(/[\s<>()'"`]+/)) if (tok && hit(tok)) return tok;
+  }
+  return null;
+}
+
+function gitTracks(file) {
+  try {
+    execFileSync('git', ['check-ignore', '-q', file], { cwd: path.dirname(file), timeout: 2000, stdio: 'ignore' });
+    return false; // ignored
+  } catch (e) {
+    return e.status === 1; // 1 = not ignored inside a repo; 128 = not a repo
+  }
+}
+
+function toolText(tool, input) {
+  if (tool === 'Bash') return String(input.command || '');
+  if (!LOCAL_TOOLS.has(tool)) return JSON.stringify(input);
+  return [input.content, input.new_string, input.edits && JSON.stringify(input.edits), input.new_source].filter(Boolean).join('\n');
+}
+
+function onPreTool(d, cfg) {
+  const tool = String(d.tool_name || '');
+  const input = d.tool_input || {};
+
+  const vault = vaultTarget(tool, input, cfg);
+  if (vault) {
+    return deny(`Reading ${vault} would print its secrets into the transcript. Use the file without printing it ` +
+      '(source it, pass it to the program that needs it), or use a form that never outputs a value: `grep -c NAME file`, `cut -d= -f1 file`, `jq \'keys\' file`.');
+  }
+
+  const text = toolText(tool, input);
+  const ttl = cfg.ttlHours * 3600e3;
+  const list = readState(statePath(d.session_id), ttl);
+  const hit = findTainted(text, list);
+  const file = String(input.file_path || input.notebook_path || '');
+
+  if (hit) {
+    if (!LOCAL_TOOLS.has(tool)) {
+      if (cfg._allowTools.some((re) => re.test(tool))) return;
+      return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) would be sent through ${tool}, which leaves the machine.`);
+    }
+    if (tool === 'Bash' && NETWORK.test(text)) {
+      return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) is in a command that talks to the network. ` +
+        'Load it from the file that already stores it (for example `source .env`) and reference that variable; copying the value into a new variable or file is blocked the same way.');
+    }
+    if (file && CODE_FILE.test(file) && !/(^|\/)\.env/.test(file)) {
+      return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) would be hardcoded into ${file}. Read it from an environment variable or a secret store instead.`);
+    }
+    if (file && gitTracks(file)) {
+      return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) would be written to ${file}, which git tracks. Put it in a git-ignored file and reference the variable.`);
+    }
+    const copies = copiesOf(tool, input, file, list, cfg);
+    if (copies.length) mark(d.session_id, copies, ttl);
+    return;
+  }
+
+  if (tool === 'Bash' && NETWORK.test(text)) {
+    const via = copyLeaving(text, list, cfg);
+    if (via) {
+      return deny(`A secret seen in this session (${via}) would be sent by a command that talks to the network. ` +
+        'Load it from the file that already stores it (for example `source .env`) and reference that variable instead.');
+    }
+  }
+
+  if (cfg.egress.blockNewSecretsInTrackedFiles && file && text && !/\.(example|sample|template)$/.test(file)) {
+    const f = scan(text).findings.find((x) => x.confidence === 'high');
+    if (f && gitTracks(file)) {
+      return deny(`This write puts a ${f.name} (${shape(f.value)}) into ${file}, which git tracks. Read it from an environment variable or a git-ignored file instead.`);
+    }
+  }
+}
+
+function onPostTool(d, cfg) {
+  const r = d.tool_response;
+  const text = typeof r === 'string' ? r : JSON.stringify(r || '');
+  if (!text) return;
+  const { findings } = scan(text.slice(0, MAX_SCAN));
+  if (!findings.length) return;
+  const added = taint(d.session_id, findings, `tool:${d.tool_name}`, cfg.ttlHours * 3600e3);
+  if (!added) return;
+  const kinds = [...new Set(findings.map((f) => f.rule))].join(', ');
+  note('PostToolUse',
+    `The output of ${d.tool_name} contained a credential (${kinds}). It is now in this transcript: do not repeat it, and tell the user it may need rotation. ` +
+    'It is protected from being sent out or written to tracked files from now on.');
+}
+
+async function main() {
+  let raw = '';
+  for await (const chunk of process.stdin) raw += chunk;
+  let d;
+  try {
+    d = JSON.parse(raw || '{}');
+  } catch {
+    return;
+  }
+  const cfg = config.load();
+  const ev = d.hook_event_name;
+  if (ev === 'UserPromptSubmit') await onPrompt(d, cfg);
+  else if (ev === 'PreToolUse') onPreTool(d, cfg);
+  else if (ev === 'PostToolUse') onPostTool(d, cfg);
+}
+
+module.exports = { main, pieces, hash, statePath, vaultTarget };

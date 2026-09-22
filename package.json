@@ -1,0 +1,43 @@
+{
+  "name": "keyfence",
+  "version": "0.1.0",
+  "description": "Keeps secrets from leaking out of AI coding agent sessions: taints every credential it sees and blocks it from leaving the machine.",
+  "license": "MIT",
+  "author": "Leonardo Candiani",
+  "homepage": "https://github.com/leonardocandiani/keyfence#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leonardocandiani/keyfence.git"
+  },
+  "bugs": {
+    "url": "https://github.com/leonardocandiani/keyfence/issues"
+  },
+  "bin": {
+    "keyfence": "bin/keyfence.js",
+    "keyfence-hook": "bin/keyfence-hook.js"
+  },
+  "main": "src/detect.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/detect.test.js && node test/hook.test.js && node test/cli.test.js && node test/jev.test.js",
+    "calibrate": "node test/jev-calibrate.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "secrets",
+    "credentials",
+    "claude-code",
+    "hooks",
+    "ai-agents",
+    "security",
+    "dlp",
+    "leak-prevention"
+  ]
+}
