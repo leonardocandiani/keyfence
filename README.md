@@ -102,6 +102,9 @@ It gets a name in this order:
 | `PAINEL_PASSWORD=...` | `PAINEL_PASSWORD`, the label you gave it |
 | a known provider's token | the name its SDK reads: `META_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`, `OPENAI_API_KEY`... |
 | "the password for wavoip: ..." or "senha da wavoip: ..." | `WAVOIP_PASSWORD`, the kind word and the subject after it |
+| `fipe-api-key=...` | `FIPE_API_KEY`, the label with `-` turned into `_` |
+| a link with `?key=...` (or `&token=`, `?access_token=`...) | the API's host plus the kind: `api.placafipe.com.br?key=` becomes `PLACAFIPE_API_KEY` |
+| "Login SIS" followed by `Senha: ...` | `SIS_PASSWORD`, the subject taken from the login line |
 | `password: ...` / `senha: ...` | `PASSWORD` (also `API_KEY`, `TOKEN`, `PIN`, `CREDENTIAL`) |
 
 The same token pasted twice is saved once; a second value under a taken name
@@ -165,7 +168,11 @@ keyfence rules
 - **Labeled values**: `token=...`, `"client_secret": "..."`, `senha: ...`,
   `export DB_PASSWORD=...`, in English, Portuguese and Spanish, filtered for
   placeholders (`${VAR}`, `<your-token>`, `changeme`), code (`options.apiKey`,
-  `getToken(`), identifiers and default passwords.
+  `getToken(`), identifiers, aliases (`billing/api`), CSS selectors and default
+  passwords. A lowercase hex or UUID value counts when a label says it is a key;
+  without a label it is treated as a commit hash.
+- **Credentials in links**: `?key=`, `?apikey=`, `&token=`, `?access_token=`,
+  `?password=` and similar query parameters in any URL.
 - **High-entropy strings** with no label or known prefix, from your own prompt
   only. Tool output is full of random ids, so this layer does not run there.
 - **Optional classifier** for prose ("the wifi password is abc123"), see below.
@@ -196,8 +203,9 @@ No text-based guard is complete, and this one says where it is blind:
   are skipped on purpose, because flagging them would flag your code. The test
   suite measures this at under 1% of such values.
 - **A password with no word around it.** "log in with leo and x7!kq92" has no
-  label, no known format and no access word, so nothing catches it. Write
-  `password: ...` or `NAME=...` and it is saved.
+  label, no known format and no access word, so nothing catches it. When a
+  message does carry a credential keyfence cannot isolate, the agent is told to
+  save it to `.env` itself and carry on; you are never asked to send it again.
 - **Quotes, `;` or `,` in the first 8 characters of a password** end the value
   before the label rule can read it. Without the classifier nothing catches it;
   store such a value in `.env` yourself.
@@ -299,7 +307,7 @@ npm test
 - `test/detect.test.js`: every provider format caught in every one of N random
   rounds (default 50, `ROUNDS=300` for more), 42 negatives taken from real code,
   and the high-entropy layer.
-- `test/hook.test.js`: 87 end-to-end scenarios running the real hook binary
+- `test/hook.test.js`: 93 end-to-end scenarios running the real hook binary
   inside throwaway git repos: vault reads, capture (names, reuse, `_2`, quotes
   that load back intact, the global fallback), injection that really sets the
   variable in bash, output cleaning of every occurrence, evasion attempts

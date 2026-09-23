@@ -150,6 +150,18 @@ check('task notifications are not scanned', decision(note1.out), 'pass');
 const quoted = `Ab9${gen('github').slice(4, 10)}'c;9x`;
 run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `QUOTE_PASSWORD=${quoted}` });
 check('capture: a value with a single quote loads back intact', execFileSync('bash', ['-c', `set -a; . '${capEnv}'; printf %s "$QUOTE_PASSWORD"`], { encoding: 'utf8' }), quoted);
+const { nameFor: nm } = require('../src/capture');
+const { scan: sc } = require('../src/detect');
+const PW = ['Kq9z', 'Pm2x7!'].join(''); // assembled so the file holds no literal password
+const nameOf = (t) => { const f = sc(t).findings[0]; return f ? nm(f, t) : 'NOT FOUND'; };
+const hex32 = () => gen('github').slice(4, 20).toLowerCase().replace(/[^a-f0-9]/g, 'a') + '0123456789abcdef';
+check('names: "?key=" in an API URL is named after the host', nameOf(`https://api.placafipe.com.br/v1/placa/ABC1D23?key=${hex32()}`), 'PLACAFIPE_API_KEY');
+check('names: fipe-api-key= keeps its label', nameOf(`fipe-api-key=${hex32()}`), 'FIPE_API_KEY');
+check('names: "Login SIS" + "Senha:" becomes SIS_PASSWORD', nameOf(`### Login SIS:\n\nEmail: a@b.com\nSenha: ${PW}`), 'SIS_PASSWORD');
+check('names: a bare "senha:" is PASSWORD, not SENHA', nameOf(`senha: ${PW}`), 'PASSWORD');
+check('names: "login do painel ... senha" becomes PAINEL_PASSWORD', nameOf(`o login do painel é leo e a senha: ${PW}`), 'PAINEL_PASSWORD');
+const fb = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `usa isso: ${gen('github').slice(4)}Zq9x` }).out;
+check('fallback: when nothing is saved, the agent saves it itself instead of asking again', /Do not ask the user to send it again/.test(JSON.stringify(fb)), true);
 const openRepo = path.join(tmp, 'openrepo');
 fs.mkdirSync(openRepo);
 execFileSync('git', ['init', '-q'], { cwd: openRepo });

@@ -63,7 +63,7 @@ const expand = (p) => p.replace(/^~(?=\/|$)/, os.homedir());
 // What the words right before the value call it: "senha: x", "a senha é x".
 const KINDS = [
   [/senha|password|passwd|pwd|\bpass\b|contrase/i, 'PASSWORD'],
-  [/api[\s_-]?key|apikey|chave/i, 'API_KEY'],
+  [/api[\s_-]?key|apikey|chave|\bkey\b/i, 'API_KEY'],
   [/token/i, 'TOKEN'],
   [/pin\b/i, 'PIN'],
   [/credencial|credential/i, 'CREDENTIAL'],
@@ -72,28 +72,62 @@ const ascii = (w) => w.normalize('NFD').replace(/[^A-Za-z0-9]/g, '').toUpperCase
 
 // The nearest cue before the value names its kind; "senha da wavoip" also names
 // its subject: WAVOIP_PASSWORD.
+const STOP = /^(?:com|para|pra|the|and|que|sem|por|via|meu|minha|nosso|nossa|this|that|your|my|app|api|www)$/i;
+const subjectOf = (w) => (w && !STOP.test(w) ? ascii(w) : '');
+
+// The nearest cue before the value names its kind. The subject comes from the
+// words after the cue ("senha da wavoip": WAVOIP_PASSWORD) or, failing that,
+// from a login/account phrase nearby ("Login SIS ... Senha:": SIS_PASSWORD).
 function kindName(item, text) {
   const at = typeof item.start === 'number' ? item.start : text.indexOf(item.value);
   const before = at > 0 ? text.slice(Math.max(0, at - 160), at) : String(item.name || '');
   let best = null;
   for (const [re, kind] of KINDS) {
     for (const m of before.matchAll(new RegExp(re.source, 'gi'))) {
-      if (!best || m.index > best.index) best = { index: m.index, end: m.index + m[0].length, kind };
+      if (!best || m.index > best.index) best = { index: m.index, kind };
     }
   }
   if (!best) return 'SECRET';
-  const subj = /^\S*\s+(?:d[aoe]s?|of|for)\s+(?:the\s+)?([^\s,.:;!?/]{2,24})/i.exec(before.slice(best.index));
-  return subj && ascii(subj[1]) ? `${ascii(subj[1])}_${best.kind}` : best.kind;
+  const subj = subjectNear(before, best.index);
+  return subj ? `${subj}_${best.kind}` : best.kind;
 }
+
+const AFTER_CUE = /^\S*\s+(?:d[aoe]s?|of|for)\s+(?:the\s+)?([^\s,.:;!?/]{2,24})/i;
+const LOGIN_OF = /(?:login|acesso|conta|account|credenciais?)\s+(?:d[aoe]s?\s+|of\s+|for\s+)?([^\s,.:;!?/]{2,24})/gi;
+
+// "senha da wavoip" names WAVOIP; failing that, "Login SIS" nearby names SIS.
+function subjectNear(before, cueAt) {
+  const after = AFTER_CUE.exec(before.slice(cueAt));
+  if (after && subjectOf(after[1])) return subjectOf(after[1]);
+  const logins = [...before.matchAll(LOGIN_OF)];
+  return logins.length ? subjectOf(logins[logins.length - 1][1]) : '';
+}
+
+// Host of an API URL as a name: api.fipeapi.com.br -> FIPEAPI.
+function hostName(host) {
+  const labels = String(host || '').toLowerCase().split('.')
+    .filter((l, i, all) => !(i >= all.length - 2 && /^(?:com|net|org|io|br|co|dev|ai|app|gov|edu|info|me|us|uk)$/.test(l)))
+    .filter((l) => !/^(?:api|apis|www|app|v\d+|rest|gateway)$/.test(l));
+  return labels.length ? ascii(labels[labels.length - 1]) : '';
+}
+
+const CUE_LABEL = /^(?:senha|password|passwd|pwd|pass|token|secret|segredo|key|apikey|chave|auth|credential|credencial|contrasena|contraseña)$/i;
 
 // A label right before the value in the prompt (an env-style name followed by
 // = or :) names it; otherwise the provider's conventional name; otherwise the
 // kind the words around it describe.
 function nameFor(item, text) {
+  if (item.rule === 'url-param') {
+    const hit = KINDS.find(([re]) => re.test(item.param));
+    const kind = hit ? hit[1] : 'API_KEY';
+    const host = hostName(item.host);
+    return host ? `${host}_${kind}` : kind;
+  }
   if (typeof item.start === 'number') {
     const before = text.slice(Math.max(0, item.start - 64), item.start);
-    const m = /([A-Za-z][A-Za-z0-9_]{2,})["'`]?\s*[:=]\s*["'`]?$/.exec(before);
-    if (m && /[_A-Z]/.test(m[1])) return m[1].toUpperCase();
+    const m = /([A-Za-z][A-Za-z0-9_-]{2,})["'`]?\s*[:=]\s*["'`]?$/.exec(before);
+    // A label that is only a cue word (senha:, api_key=) says the kind, not the name.
+    if (m && !CUE_LABEL.test(m[1].replace(/[_-]/g, '')) && /[_A-Z-]/.test(m[1])) return m[1].toUpperCase().replace(/-/g, '_');
   }
   if (NAMES[item.rule]) return NAMES[item.rule];
   if (/^(labeled|high-entropy|classifier)$/.test(item.rule)) return kindName(item, text);

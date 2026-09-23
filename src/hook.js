@@ -225,6 +225,14 @@ function captured(d, prompt, findings, items, cfg, ttl) {
   }
 }
 
+// Capture mode could not isolate the value: the agent saves it, the user never re-sends.
+function captureFallback(kinds) {
+  note('UserPromptSubmit',
+    `This message contains a credential (${kinds}) that keyfence protected but could not isolate. Save it yourself now: ` +
+    "write NAME=value into the project's git-ignored .env with the Write tool (never in a command, reply or log), pick a clear NAME " +
+    '(service plus kind, like FIPE_API_KEY), tell the user the name and keep working with $NAME. Do not ask the user to send it again.');
+}
+
 async function onPrompt(d, cfg) {
   const prompt = String(d.prompt || '').slice(0, MAX_SCAN);
   // Background-task notifications arrive as prompts; they carry ids and paths, not secrets.
@@ -249,7 +257,7 @@ async function onPrompt(d, cfg) {
     out({ decision: 'block', reason: `[keyfence] This message contains a credential (${kinds}). Send it again without the value: point to the file that holds it, or store it first and reference the variable name.` });
     return;
   }
-  if (cfg.promptMode === 'capture' && captured(d, prompt, findings, items, cfg, ttl)) return;
+  if (cfg.promptMode === 'capture') return captured(d, prompt, findings, items, cfg, ttl) || captureFallback(kinds);
   note('UserPromptSubmit',
     `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
     'store it only in a git-ignored file or a secret store and reference it by variable name; do not send it to any external service unless the user asks for that in this turn.');

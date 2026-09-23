@@ -78,6 +78,9 @@ const positives = [
   ['bearer', () => j('Authorization: Bear', 'er ', r(40, URLSAFE))],
   // labeled values (no provider shape)
   ['labeled', () => j('CLOUDFLARE_API_TOKEN=', r(40, URLSAFE))],
+  ['labeled', () => j('fipe-api-', 'key=', r(32, HEX))], // hex under an explicit label is a key, not a hash
+  ['url-param', () => j('https://api.', 'placa', 'fipe.com.br/v1/placa/ABC1D23?key=', r(32, HEX))],
+  ['url-param', () => j('https://example.io/v2/data?page=2&access_', 'token=', r(40, URLSAFE))],
   ['labeled', () => j('VERCEL_TOKEN=', r(24))],
   ['labeled', () => j('"client_secret": "', r(32), '"')],
   ['labeled', () => j('senha: ', r(14, ALNUM + '!@#'))],
@@ -128,6 +131,9 @@ const negatives = [
   '"secret": "service/api"', // an alias or path is a name, not a value
   '"secret": "wavoip/test-device/sip"',
   '"password": "#sip-password"', // a CSS selector names a field, it is not the value
+  'https://example.com/search?page=2&sort=name&q=relatorio-mensal',
+  'https://api.exemplo.com.br/v1/items?key=${API_KEY}',
+  'commit: 3f2a9c1d8e7b6a5f4d3c2b1a0f9e8d7c6b5a4f3e',
   'auth: SESSION_TTL=3600',
   'token = user == null ? none : user.token',
   'secret_key: sk-ant-api03-...',

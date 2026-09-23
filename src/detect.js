@@ -64,8 +64,15 @@ function caseSwitches(v) {
 const DEFAULTS = /^(?:password|passw0rd|postgres|mysql|root|admin|administrator|secret|changeme|senha|default|guest|user|test|pass|qwerty|letmein|welcome|12345678|123456789|p@ssw0rd)$/i;
 
 // Does a captured value look like a real secret rather than code or prose?
-function looksSecret(v) {
-  if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v) || benignShape(v)) return false;
+const HEXLIKE = /^(?:[0-9a-f]{16,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+// `labeled` is true when a label (api-key, token, senha...) or a URL parameter
+// already says the value is a credential: then a hex or UUID value is a key,
+// not a commit hash.
+function looksSecret(v, labeled = false) {
+  if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
+  if (labeled && HEXLIKE.test(v)) return true;
+  if (benignShape(v)) return false;
   // Chained assignment in docs (`auth: SESSION_TTL=3600`): judge the right side.
   const asg = /^[A-Z][A-Z0-9_]*=(.+)$/.exec(v);
   if (asg) return looksSecret(asg[1]);
@@ -147,9 +154,30 @@ function scanLabeled(text) {
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
-    if (!looksSecret(value)) continue;
+    if (!looksSecret(value, true)) continue;
     const start = at;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
+  }
+  return out;
+}
+
+// Credentials in URL query strings: ?key=, &token=, ?access_token=, ?apikey=.
+const URL_RE = /https?:\/\/[^\s"'`<>]+/g;
+const URL_PARAM = /^(?:key|api[_-]?key|apikey|x-api-key|access[_-]?token|token|auth|auth[_-]?token|secret|client[_-]?secret|password|pass|pwd|senha|sig|signature)$/i;
+
+function scanUrlParams(text) {
+  const out = [];
+  URL_RE.lastIndex = 0;
+  let m;
+  while ((m = URL_RE.exec(text))) {
+    let url;
+    try { url = new URL(m[0].replace(/[).,;:!?]+$/, '')); } catch { continue; }
+    for (const [param, value] of url.searchParams) {
+      if (!URL_PARAM.test(param) || !looksSecret(value, true)) continue;
+      const start = text.indexOf(value, m.index);
+      if (start < 0) continue;
+      out.push({ rule: 'url-param', name: `URL parameter (${param})`, value, start, end: start + value.length, confidence: 'high', param, host: url.hostname });
+    }
   }
   return out;
 }
@@ -194,7 +222,7 @@ function resolve(findings) {
 function scan(text, opts = {}) {
   if (!text || typeof text !== 'string') return { findings: [], ambiguous: [] };
   const lower = text.toLowerCase();
-  const findings = resolve([...scanRules(text, lower), ...scanLabeled(text)]);
+  const findings = resolve([...scanRules(text, lower), ...scanLabeled(text), ...scanUrlParams(text)]);
   const ambiguous = opts.ambiguous ? scanAmbiguous(text, findings) : [];
   return { findings, ambiguous };
 }
