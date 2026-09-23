@@ -18,6 +18,8 @@ for (const w of ['usuario:', 'senha=', 'leo@empresa.com', 'https://painel.io/x',
 }
 check('a mixed password is a candidate', isCandidate('Kq9zPm2x!'));
 check('digits with a symbol is a candidate', isCandidate('88776655*'));
+for (const w of ['proteção', 'configuração', 'usuário', 'atualização']) check(`an accented word is not a candidate: ${w}`, !isCandidate(w));
+check('an accented password with digits still is', isCandidate('ação2024!x'));
 check('a file path is not a candidate', !isCandidate('/private/tmp/task-1.output'));
 
 (async () => {

@@ -30,9 +30,10 @@ const looksLikeIdentifier = (w) => w.startsWith('--') || /^[a-z]+(?:[-_.](?:[a-z
 // A word is a candidate if it could plausibly be a credential.
 function isCandidate(w) {
   if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w)) return false;
-  const letters = /[A-Za-z]/.test(w);
+  // Accented letters are letters: "proteção" is a word, not a password.
+  const letters = /\p{L}/u.test(w);
   const digits = /[0-9]/.test(w);
-  const symbols = /[^A-Za-z0-9]/.test(w);
+  const symbols = /[^\p{L}\p{N}]/u.test(w);
   if (digits && (letters || symbols)) return true;
   return (letters && symbols && w.length >= 8) || entropy(w) >= 3.5;
 }
