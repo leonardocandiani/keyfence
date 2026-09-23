@@ -51,7 +51,7 @@ vault:   reading .env, SSH keys or credential files is denied; counting and list
 detects: 53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier
 privacy: the optional jev classifier only ever sees the shape of a value (aaa999), never the value
 speed:   plain Node, no dependencies, about 7 ms per tool call
-install: npm install -g keyfence · keyfence install
+install: npm install -g github:leonardocandiani/keyfence · keyfence install
 license: MIT
 ```
 
@@ -65,12 +65,17 @@ Code hook that watches every place a secret can come in and every place it can
 go out.
 
 ```
-npm install -g keyfence
+npm install -g github:leonardocandiani/keyfence
 keyfence install
 ```
 
-That registers the hook in `~/.claude/settings.json`. It takes effect on the
-next tool call of every session, running ones included.
+That registers the hook in `~/.claude/settings.json` for the three events it
+uses (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`). It takes effect on the
+next tool call of every session, running ones included. `keyfence uninstall`
+removes it and keeps a backup of your settings.
+
+Requires Node 18 or later. Tested on Claude Code 2.1.280; injection and output
+cleaning rely on the `updatedInput` and `updatedToolOutput` hook fields.
 
 ## What it does
 
@@ -87,10 +92,20 @@ output: {"token": "⟨META_ACCESS_TOKEN⟩", ...}
 
 The token is saved the moment you send the message, to the repo's `.env` when
 git ignores it, otherwise to a private `~/.config/keyfence/secrets.env` (both
-`0600`). It gets the name its SDK expects (`META_ACCESS_TOKEN`,
-`STRIPE_SECRET_KEY`, `GITHUB_TOKEN`...), or the label you gave it
-(`MY_KEY=...`). The same token pasted twice is saved once; a second token for
-the same provider becomes `_2` and never overwrites the first.
+`0600`). Values are quoted so the file loads back intact with `source`, even
+with quotes or `;` inside.
+
+It gets a name in this order:
+
+| You send | Saved as |
+|---|---|
+| `PAINEL_PASSWORD=...` | `PAINEL_PASSWORD`, the label you gave it |
+| a known provider's token | the name its SDK reads: `META_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`, `OPENAI_API_KEY`... |
+| "the password for wavoip: ..." or "senha da wavoip: ..." | `WAVOIP_PASSWORD`, the kind word and the subject after it |
+| `password: ...` / `senha: ...` | `PASSWORD` (also `API_KEY`, `TOKEN`, `PIN`, `CREDENTIAL`) |
+
+The same token pasted twice is saved once; a second value under a taken name
+becomes `_2` and never overwrites the first.
 
 Underneath, keyfence works in three layers.
 
@@ -180,6 +195,15 @@ No text-based guard is complete, and this one says where it is blind:
 - **Short letters-only passwords** that look like an identifier (`fooBarBazQu`)
   are skipped on purpose, because flagging them would flag your code. The test
   suite measures this at under 1% of such values.
+- **A password with no word around it.** "log in with leo and x7!kq92" has no
+  label, no known format and no access word, so nothing catches it. Write
+  `password: ...` or `NAME=...` and it is saved.
+- **Quotes, `;` or `,` in the first 8 characters of a password** end the value
+  before the label rule can read it. Without the classifier nothing catches it;
+  store such a value in `.env` yourself.
+- **Several candidate words for the classifier.** When the classifier flags a
+  message with more than one possible secret, all of them are protected but none
+  is saved, because guessing which one is the password would be worse.
 - **Unknown formats.** A credential with no label, no known prefix and low
   randomness is not detected. The high-entropy layer and the classifier narrow
   this; they do not close it.
@@ -219,11 +243,14 @@ The model judges intent from the words around it. This is enforced in
 body.
 
 It only runs when the prompt mentions access (password, token, key, login...)
-and contains a candidate word, has a 4 second timeout, and fails open. On a
-calibration set of 20 realistic prompts, disclosures scored 0.22 to 0.59 and
-ordinary talk 0.04 to 0.12, so the default threshold is 0.18. Median latency was
-474 ms. Enable it with `"jev": { "enabled": true }` and a key in
-`TYPESAFE_API_KEY` or `~/.config/typesafe/api-key`.
+and contains a candidate word. Labels (`senha:`), emails, URLs, file paths and
+design tokens (`--color-primary-500`) are never candidates; background-task
+notifications are not scanned at all. On a calibration set of 20 realistic
+prompts, disclosures scored 0.22 to 0.59 and ordinary talk 0.04 to 0.12, so the
+default threshold is 0.18. Latency was 474 ms median on calibration day and 1.2
+to 3.5 s on later runs; the call has a 4 second timeout and fails open. Enable it
+with `"jev": { "enabled": true }` and a key in `TYPESAFE_API_KEY` or
+`~/.config/typesafe/api-key`.
 
 ## Scanning files
 
@@ -243,6 +270,25 @@ gitleaks or trufflehog go deeper; keyfence focuses on the agent session.
 
 The hook is plain Node with no dependencies. Measured overhead per tool call is
 6 to 9 ms above Node's own startup. It scans at most 2 MB of any tool output.
+The classifier, when enabled, adds its network call only to messages that
+mention access and carry a candidate word.
+
+## Telling the agent
+
+The hook already tells the agent what it did, message by message. A few lines in
+your `CLAUDE.md` make it behave well from the first turn:
+
+```markdown
+## Credentials (keyfence)
+- A credential I paste is saved by keyfence to .env under a name it tells you.
+  Use only that name ($META_ACCESS_TOKEN); keyfence loads the file into any
+  command that references it. Never repeat, print, log or commit the value.
+- ⟨NAME⟩ or ⟨keyfence:rule⟩ in an output is the value hidden on purpose.
+- A [keyfence] denial means a vault read or a literal value leaving. Follow the
+  alternative it gives; never work around it.
+- If I say I sent a credential and no name came with it, ask me to resend it as
+  NAME=value.
+```
 
 ## Development
 
@@ -253,9 +299,12 @@ npm test
 - `test/detect.test.js`: every provider format caught in every one of N random
   rounds (default 50, `ROUNDS=300` for more), 42 negatives taken from real code,
   and the high-entropy layer.
-- `test/hook.test.js`: 81 end-to-end scenarios running the real hook binary
-  inside a throwaway git repo, including evasion attempts (base64, scripts
-  outside the repo, WebFetch, commit messages, unknown tools), plus latency.
+- `test/hook.test.js`: 87 end-to-end scenarios running the real hook binary
+  inside throwaway git repos: vault reads, capture (names, reuse, `_2`, quotes
+  that load back intact, the global fallback), injection that really sets the
+  variable in bash, output cleaning of every occurrence, evasion attempts
+  (base64, copies into variables and files, scripts outside the repo, WebFetch,
+  commit messages, unknown tools), plus latency.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

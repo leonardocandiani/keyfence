@@ -31,7 +31,7 @@
     "detects": "53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier",
     "privacy": "the optional jev classifier only ever sees the shape of a value (aaa999), never the value",
     "speed": "plain Node, no dependencies, about 7 ms per tool call",
-    "install": "npm install -g keyfence · keyfence install",
+    "install": "npm install -g github:leonardocandiani/keyfence · keyfence install",
     "license": "MIT"
   }
 }

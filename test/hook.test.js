@@ -147,6 +147,9 @@ check('capture: "senha da wavoip" names WAVOIP_PASSWORD', nameFor({ rule: 'class
 check('capture: "a chave do sistema" names SISTEMA_API_KEY', nameFor({ rule: 'classifier', value: 'Kq9zPm2x77' }, 'a chave do sistema de cobrança é Kq9zPm2x77'), 'SISTEMA_API_KEY');
 const note1 = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `<task-notification>\n<task-id>${gen('github').slice(4, 14)}</task-id>\n<output-file>/private/tmp/x/tasks/abc.output</output-file>` });
 check('task notifications are not scanned', decision(note1.out), 'pass');
+const quoted = `Ab9${gen('github').slice(4, 10)}'c;9x`;
+run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `QUOTE_PASSWORD=${quoted}` });
+check('capture: a value with a single quote loads back intact', execFileSync('bash', ['-c', `set -a; . '${capEnv}'; printf %s "$QUOTE_PASSWORD"`], { encoding: 'utf8' }), quoted);
 const openRepo = path.join(tmp, 'openrepo');
 fs.mkdirSync(openRepo);
 execFileSync('git', ['init', '-q'], { cwd: openRepo });
@@ -171,6 +174,8 @@ const red = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input:
 const redOut = red && red.hookSpecificOutput && red.hookSpecificOutput.updatedToolOutput;
 check('redact: captured token in output becomes its name', redOut && redOut.stdout, 'token=⟨META_ACCESS_TOKEN⟩\nok');
 check('redact: output shape is kept', redOut && redOut.stderr, '');
+const twice = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'x' }, tool_response: { stdout: `a=${metaTok}\nb=${metaTok}` } }).out;
+check('redact: every occurrence is replaced, not only the first', JSON.stringify(twice).includes(metaTok), false);
 const freshGh = gen('github');
 const red2 = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'x' }, tool_response: { stdout: `GH=${freshGh}` } }).out;
 check('redact: a new token in output is hidden too', JSON.stringify(red2).includes(freshGh), false);

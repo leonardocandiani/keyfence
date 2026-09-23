@@ -118,6 +118,20 @@ function scanRules(text, lower) {
   return out;
 }
 
+// The label regex stops at quotes and separators so code stays readable to it,
+// but a password can contain them. When the token goes on past that point with
+// no space, take all of it (minus trailing punctuation and quotes); a closing
+// quote ends a quoted value. A second `=` means chained assignments, not one value.
+function fullValue(text, at, quote, raw) {
+  const rest = text.slice(at, at + 256);
+  if (quote) {
+    const close = rest.indexOf(quote);
+    return close >= raw.length ? rest.slice(0, close) : raw;
+  }
+  const tok = /^\S+/.exec(rest)[0].replace(/[,;.:)\]}>'"`]+$/, '');
+  return /=/.test(tok.slice(raw.length)) ? raw : tok;
+}
+
 function scanLabeled(text) {
   const out = [];
   LABEL.lastIndex = 0;
@@ -126,12 +140,13 @@ function scanLabeled(text) {
     const [, label, quote, raw, call] = m;
     if (call) continue; // `token = getToken(` is code
     if (PLACEHOLDER.test(raw)) continue;
-    const value = raw.replace(/[.:]+$/, '');
+    const at = m.index + m[0].length - raw.length;
+    const value = fullValue(text, at, quote, raw).replace(/[.:]+$/, '');
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
     if (!looksSecret(value)) continue;
-    const start = m.index + m[0].lastIndexOf(value);
+    const start = at;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }
   return out;
