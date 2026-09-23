@@ -64,6 +64,13 @@ const DEFAULTS = {
     apiKeyFile: '~/.config/typesafe/api-key',
     model: 'jev-latest',
     timeoutMs: 4000,
+    // Per-word judgement runs in the background after the prompt, so it may take
+    // longer; a word is a secret at this probability or above.
+    jobTimeoutMs: 15000,
+    pickThreshold: 0.5,
+    // Below pickThreshold but at or above this, a word is not saved but stays
+    // protected: "use this: x7Kq..." with no context is unclear, not safe.
+    keepThreshold: 0.2,
     threshold: 0.18, // calibrated: disclosures 0.22-0.59, ordinary talk 0.04-0.12 (test/jev-calibrate.js)
   },
 };

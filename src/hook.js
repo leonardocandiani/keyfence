@@ -89,10 +89,17 @@ function taint(sessionId, items, source, ttlMs) {
     seen.add(h);
     added++;
   }
-  try {
-    fs.writeFileSync(file, JSON.stringify(list), { mode: 0o600 });
-  } catch { /* best effort */ }
+  writeState(file, list);
   return added;
+}
+
+// Write to a temp file and rename: the background classifier writes this file too.
+function writeState(file, list) {
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(list), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch { /* best effort */ }
 }
 
 // Every substring that could be a secret, split the ways a value gets glued to
@@ -134,9 +141,21 @@ function mark(sessionId, items, ttlMs) {
     list.push({ ...it, ts: Date.now() });
     seen.add(`${it.d}:${it.n}`);
   }
-  try {
-    fs.writeFileSync(file, JSON.stringify(list), { mode: 0o600 });
-  } catch { /* best effort */ }
+  writeState(file, list);
+}
+
+// Messages for the agent produced outside a hook call (the background
+// classifier); delivered with the next prompt or tool result, then dropped.
+function pushNotice(sessionId, text, ttlMs) {
+  mark(sessionId, [{ d: 'notice', n: `${Date.now()}-${process.pid}`, text }], ttlMs);
+}
+
+function takeNotices(sessionId, ttlMs) {
+  const file = statePath(sessionId);
+  const list = readState(file, ttlMs);
+  const notices = list.filter((x) => x.d === 'notice');
+  if (notices.length) writeState(file, list.filter((x) => x.d !== 'notice'));
+  return notices.map((x) => x.text);
 }
 
 // Variables and files a local command or write is about to fill with a tainted value.
@@ -190,8 +209,11 @@ function out(obj) {
   process.stdout.write(JSON.stringify(obj));
 }
 
+let pendingHit = false;
 function deny(reason) {
-  out({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[keyfence] ${reason}` } });
+  const extra = pendingHit ? ' This value came from the user\'s latest message and keyfence is still checking it (a few seconds): '
+    + 'continue with other work and use the name keyfence gives with your next tool result.' : '';
+  out({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[keyfence] ${reason}${extra}` } });
   return true;
 }
 
@@ -202,65 +224,87 @@ function note(event, text) {
 // ---------------------------------------------------------------------------
 // events
 
-// Capture mode: save the value to the env file and tell the agent its name.
-// Known formats and labeled values are saved; a classifier verdict only when it
-// points at a single word. High-entropy guesses stay tainted, not saved.
-function captured(d, prompt, findings, items, cfg, ttl) {
-  const classified = items.filter((i) => i.rule === 'classifier');
-  const keep = [...findings, ...(classified.length === 1 ? classified : [])];
-  if (!keep.length) return false;
+// Capture mode: save the values to the env file and return the note that tells
+// the agent their names, or null when nothing could be saved.
+function captureText(d, prompt, keep, cfg, ttl) {
+  if (!keep.length) return null;
   try {
     const { save } = require('./capture');
     const r = save(keep, prompt, d.cwd, cfg);
     mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
     const names = r.saved.map((x) => `$${x.name} (${x.rule}${x.reused ? ', already saved' : ''})`).join(', ');
     const where = r.project ? `the project's git-ignored ${r.file}` : `${r.file} (outside the repo)`;
-    note('UserPromptSubmit',
-      `This message contains a real credential. keyfence saved it to ${where} as ${names}. ` +
+    return `The user's message contains a real credential. keyfence saved it to ${where} as ${names}. ` +
       'Work with it by name from now on: reference the variable in commands (keyfence loads it into any Bash command that uses it) or load the file in code. ' +
-      'Never repeat the value in replies, code, comments, logs or commit messages.');
-    return true;
+      'Never repeat the value in replies, code, comments, logs or commit messages.';
   } catch {
-    return false; // fall back to warn
+    return null;
   }
 }
 
-// Capture mode could not isolate the value: the agent saves it, the user never re-sends.
-function captureFallback(kinds) {
-  note('UserPromptSubmit',
-    `This message contains a credential (${kinds}) that keyfence protected but could not isolate. Save it yourself now: ` +
+// Nothing could isolate the value: the agent saves it, the user never re-sends.
+function fallbackText(kinds) {
+  return `The user's message contains a credential (${kinds}) that keyfence protected but could not isolate. Save it yourself now: ` +
     "write NAME=value into the project's git-ignored .env with the Write tool (never in a command, reply or log), pick a clear NAME " +
-    '(service plus kind, like FIPE_API_KEY), tell the user the name and keep working with $NAME. Do not ask the user to send it again.');
+    '(service plus kind, like FIPE_API_KEY), tell the user the name and keep working with $NAME. Do not ask the user to send it again.';
+}
+
+const WARN_TEXT = (kinds) => `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
+  'store it only in a git-ignored file or a secret store and reference it by variable name; do not send it to any external service unless the user asks for that in this turn.';
+
+// Words the rules did not settle go to the classifier in the background. They are
+// tainted at once as "pending", so nothing leaves while the answer is on its way.
+function startClassifier(d, prompt, settled, cfg, ttl) {
+  if (!cfg.jev.enabled) return 0;
+  const { candidatesOf, apiKey, worthAsking } = require('./jev');
+  if (!apiKey(cfg)) return 0;
+  const cands = candidatesOf(prompt, settled.map((f) => f.value));
+  if (!worthAsking(prompt, cands)) return 0;
+  taint(d.session_id, cands.map((value) => ({ value, rule: 'pending' })), 'provisional', ttl);
+  try {
+    const job = path.join(os.tmpdir(), `keyfence-job-${String(d.session_id).replace(/[^A-Za-z0-9_-]/g, '')}-${Date.now()}.json`);
+    fs.writeFileSync(job, JSON.stringify({ sid: d.session_id, cwd: d.cwd, prompt, cands }), { mode: 0o600 });
+    const { spawn } = require('child_process');
+    spawn(process.execPath, [path.join(__dirname, '..', 'bin', 'keyfence-hook.js'), '--classify', job], { detached: true, stdio: 'ignore', env: process.env }).unref();
+  } catch {
+    return 0;
+  }
+  return cands.length;
 }
 
 async function onPrompt(d, cfg) {
   const prompt = String(d.prompt || '').slice(0, MAX_SCAN);
   // Background-task notifications arrive as prompts; they carry ids and paths, not secrets.
   if (/^\s*<task-notification>/.test(prompt)) return;
-  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt });
-  let items = [...findings, ...ambiguous];
-
-  if (cfg.jev.enabled) {
-    const { classify } = require('./jev');
-    const verdict = await classify(prompt, cfg);
-    if (verdict && verdict.isSecret) {
-      items = items.concat(verdict.candidates.map((v) => ({ value: v, rule: 'classifier' })));
-    }
-  }
-  if (!items.length) return;
-
   const ttl = cfg.ttlHours * 3600e3;
-  taint(d.session_id, items, 'prompt', ttl);
-  const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
-
-  if (cfg.promptMode === 'block') {
+  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt });
+  const items = [...findings, ...ambiguous];
+  if (items.length) taint(d.session_id, items, 'prompt', ttl);
+  if (cfg.promptMode === 'block' && items.length) {
+    const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
     out({ decision: 'block', reason: `[keyfence] This message contains a credential (${kinds}). Send it again without the value: point to the file that holds it, or store it first and reference the variable name.` });
     return;
   }
-  if (cfg.promptMode === 'capture') return captured(d, prompt, findings, items, cfg, ttl) || captureFallback(kinds);
-  note('UserPromptSubmit',
-    `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
-    'store it only in a git-ignored file or a secret store and reference it by variable name; do not send it to any external service unless the user asks for that in this turn.');
+  const pending = startClassifier(d, prompt, findings, cfg, ttl);
+  const parts = [...takeNotices(d.session_id, ttl), ...promptNotes(d, prompt, findings, items, pending, cfg, ttl)];
+  if (parts.length) note('UserPromptSubmit', parts.join(' '));
+}
+
+// What the agent is told about this prompt: saved names, or how to handle what
+// could not be saved, plus the words still being checked.
+function promptNotes(d, prompt, findings, items, pending, cfg, ttl) {
+  const parts = [];
+  const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
+  if (items.length && cfg.promptMode !== 'capture') parts.push(WARN_TEXT(kinds));
+  if (items.length && cfg.promptMode === 'capture') {
+    const saved = captureText(d, prompt, findings, cfg, ttl);
+    if (saved || !pending) parts.push(saved || fallbackText(kinds));
+  }
+  if (pending) {
+    parts.push(`keyfence is checking ${pending} more word(s) of this message in the background (a few seconds); they are protected meanwhile. ` +
+      'Do not copy values from this message into commands, files or replies; if one is a credential, its name arrives with your next tool result.');
+  }
+  return parts;
 }
 
 // A heredoc body is data being written, not a command being run. Documentation
@@ -313,6 +357,7 @@ function judge(d, cfg) {
   const ttl = cfg.ttlHours * 3600e3;
   const list = readState(statePath(d.session_id), ttl);
   const hit = findTainted(text, list);
+  pendingHit = Boolean(hit && hit.rule === 'pending');
   const file = String(input.file_path || input.notebook_path || '');
 
   if (hit) {
@@ -400,7 +445,7 @@ function onPostTool(d, cfg) {
   if (cfg.redactOutput) {
     const list = readState(statePath(d.session_id), ttl);
     const names = new Map(list.filter((x) => x.d === 'store').map((x) => [x.h, x.n]));
-    const rules = new Map(list.filter((x) => x.h && !x.d).map((x) => [x.h, x.rule]));
+    const rules = new Map(list.filter((x) => x.h && !x.d && x.rule !== 'pending').map((x) => [x.h, x.rule]));
     const label = (v, rule) => { const h = hash(v); return names.has(h) ? `⟨${names.get(h)}⟩` : `⟨keyfence:${rules.get(h) || rule}⟩`; };
     for (const f of findings) hide.set(f.value, label(f.value, f.rule));
     if (rules.size) {
@@ -408,18 +453,17 @@ function onPostTool(d, cfg) {
     }
   }
   const kinds = [...new Set(findings.map((f) => f.rule))].join(', ');
+  const parts = takeNotices(d.session_id, ttl);
   if (hide.size) {
-    out({ hookSpecificOutput: {
-      hookEventName: 'PostToolUse',
-      updatedToolOutput: scrub(r, hide),
-      additionalContext: `[keyfence] The output of ${d.tool_name} contained a credential; keyfence replaced it with ${[...new Set(hide.values())].join(', ')} before you saw it. Refer to it by that name; do not try to print it another way.`,
-    } });
+    parts.unshift(`The output of ${d.tool_name} contained a credential; keyfence replaced it with ${[...new Set(hide.values())].join(', ')} before you saw it. Refer to it by that name; do not try to print it another way.`);
+    out({ hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: scrub(r, hide), additionalContext: `[keyfence] ${parts.join(' ')}` } });
     return;
   }
-  if (!added) return;
-  note('PostToolUse',
-    `The output of ${d.tool_name} contained a credential (${kinds}). It is now in this transcript: do not repeat it, and tell the user it may need rotation. ` +
-    'It is protected from being sent out or written to tracked files from now on.');
+  if (added) {
+    parts.unshift(`The output of ${d.tool_name} contained a credential (${kinds}). It is now in this transcript: do not repeat it, and tell the user it may need rotation. ` +
+      'It is protected from being sent out or written to tracked files from now on.');
+  }
+  if (parts.length) note('PostToolUse', parts.join(' '));
 }
 
 async function main() {
@@ -438,4 +482,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, hash, statePath, vaultTarget };
+module.exports = { main, pieces, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };

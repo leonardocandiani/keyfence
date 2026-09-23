@@ -87,4 +87,90 @@ async function classify(text, cfg) {
   }
 }
 
-module.exports = { classify, mask, isCandidate, apiKey };
+// --- per-word judgement ------------------------------------------------------
+// The rules decide what they recognize; everything else that could be a
+// credential goes to the classifier one word at a time, masked, so it answers
+// "which word" and not only "is there one". Emails are candidates here: an email
+// can be the password. Context decides, not the shape.
+const NOT_A_VALUE = (w) => w.startsWith('--') || /[:=]$/.test(w) || /^https?:\/\//.test(w)
+  || /^[~./]/.test(w) || /^v?\d+(?:\.\d+)+$/.test(w) || /^\d{1,7}$/.test(w)
+  || /\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(w)
+  || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w);
+
+function mayBeSecret(w, cue = false) {
+  // A PIN or numeric password is a candidate only when the message talks about access.
+  if (cue && /^\d{4,12}$/.test(w)) return true;
+  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w)) return false;
+  const digits = /[0-9]/.test(w);
+  const symbols = /[^\p{L}\p{N}]/u.test(w);
+  const mixedCase = /\p{Ll}\p{Lu}|\p{Lu}\p{Ll}+\p{Lu}/u.test(w);
+  return digits || symbols || mixedCase || entropy(w) >= 3.5;
+}
+
+// Candidate words of a prompt, most random-looking first, capped.
+function candidatesOf(text, skip = [], max = 12) {
+  const seen = new Set(skip);
+  const out = [];
+  const cue = CUE.test(text);
+  for (const raw of String(text).match(/[^\s"'`,;()[\]{}<>]+/g) || []) {
+    // Sentence punctuation ends a word; `!` often ends a password, so it stays.
+    const w = raw.replace(/[.,:;?]+$/, '');
+    if (seen.has(w) || !mayBeSecret(w, cue)) continue;
+    seen.add(w);
+    out.push(w);
+  }
+  return out.sort((a, b) => entropy(b) * b.length - entropy(a) * a.length).slice(0, max);
+}
+
+// Worth a classifier call: the message talks about access, or a candidate looks
+// like a credential on its own (long, or three kinds of character).
+const KINDS3 = (w) => [/\p{Ll}/u, /\p{Lu}/u, /[0-9]/, /[^\p{L}\p{N}]/u].filter((re) => re.test(w)).length >= 3;
+function worthAsking(text, cands) {
+  return cands.length > 0 && (CUE.test(text) || cands.some((c) => c.length >= 16 || (c.length >= 8 && KINDS3(c))));
+}
+
+// Longest first, so a candidate inside another is not masked twice.
+function maskIds(text, cands) {
+  let masked = text;
+  [...cands].map((c, i) => [c, i]).sort((a, b) => b[0].length - a[0].length)
+    .forEach(([c, i]) => { masked = masked.split(c).join(`⟨c${i + 1}:${shape(c)}⟩`); });
+  return masked;
+}
+
+const PICK = 'Is ⟨ID⟩ in `message` a secret the user is sharing: a password, API key, token or other credential that grants access? '
+  + 'Usernames, emails used only as logins, ids, hashes, commit SHAs, plates and codes are not secrets unless the message uses them as the password.';
+
+/**
+ * Judge each candidate from its context. Returns [{value, p}], or null when the
+ * classifier is unavailable (no key, timeout, error): the caller fails safe.
+ */
+async function judge(text, cands, cfg) {
+  const key = apiKey(cfg);
+  if (!key || !cands.length) return null;
+  const questions = {};
+  cands.forEach((c, i) => { questions[`c${i + 1}`] = { type: 'noul', instructions: PICK.replace('ID', `c${i + 1}`) }; });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), cfg.jev.jobTimeoutMs || 15000);
+  try {
+    const res = await fetch(cfg.jev.endpoint, {
+      method: 'POST',
+      signal: ctl.signal,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: cfg.jev.model,
+        state: { message: maskIds(text.slice(0, 8000), cands), note: 'Values between ⟨ ⟩ were replaced by an id and their shape: a=lowercase, A=uppercase, 9=digit.' },
+        questions,
+      }),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const out = cands.map((value, i) => ({ value, p: j && j.answers && j.answers[`c${i + 1}`] && j.answers[`c${i + 1}`].noul }));
+    return out.every((x) => typeof x.p === 'number') ? out : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { classify, mask, isCandidate, apiKey, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE };

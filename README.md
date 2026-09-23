@@ -242,23 +242,41 @@ Optional, at `~/.config/keyfence/config.json` (or the path in
 
 ## The optional classifier
 
-Rules cannot tell "the wifi password is abc123" from "rename abc123 to wifi".
-keyfence can ask [TypeSafe's jev](https://docs.typesafe.ai) model, and it does so
-without ever sending the value: every word that could be a credential is replaced
-by its shape (`abc123` becomes `⟨aaa999⟩`) before the text leaves your machine.
-The model judges intent from the words around it. This is enforced in
-`src/jev.js` and covered by `test/jev.test.js`, which inspects the exact request
-body.
+Rules settle the formats they know, in milliseconds. Everything else that could
+be a credential is judged **word by word, from its context**, by
+[TypeSafe's jev](https://docs.typesafe.ai): "the wifi password is casa2024",
+"login e senha da wavoip ... 88776655*", a hex key after "a chave da fipe", an
+email that is also the password. No fixed format decides; the sentence does.
 
-It only runs when the prompt mentions access (password, token, key, login...)
-and contains a candidate word. Labels (`senha:`), emails, URLs, file paths and
-design tokens (`--color-primary-500`) are never candidates; background-task
-notifications are not scanned at all. On a calibration set of 20 realistic
-prompts, disclosures scored 0.22 to 0.59 and ordinary talk 0.04 to 0.12, so the
-default threshold is 0.18. Latency was 474 ms median on calibration day and 1.2
-to 3.5 s on later runs; the call has a 4 second timeout and fails open. Enable it
-with `"jev": { "enabled": true }` and a key in `TYPESAFE_API_KEY` or
-`~/.config/typesafe/api-key`.
+The value never leaves your machine: each candidate word is replaced by an id
+and its shape (`⟨c2:aaaa9999⟩`) before the request. This is enforced in
+`src/jev.js` and covered by tests that inspect every request body.
+
+It runs **in the background**, so your message is never held:
+
+1. At once, the rules capture what they recognize, and every other candidate
+   word is protected by hash (nothing leaves through the network, a commit or a
+   tool meanwhile).
+2. A separate process asks the classifier about each word. At 0.5 or above the
+   word is saved to `.env` with a name; from 0.2 to 0.5 it is not saved but stays
+   protected (unclear is not safe); below 0.2 (an order number, a plate, a
+   commit) it is released.
+3. The agent gets the name with its next tool result.
+
+If the classifier is unreachable, every candidate stays protected and the agent
+is told to save the credential itself. It is called only when the message
+mentions access or a word looks like a credential on its own: in one week of
+real use, 11% to 29% of messages, none of them held.
+
+On 30 messages written the way people send them (`node test/jev-eval.js`, live):
+16 of 17 credentials saved with the right name, 17 of 17 protected, and none of
+14 look-alikes (order ids, commits, plates, CPF, phone, UUIDs, tracking codes)
+captured. The one not saved was "use this: x7Kq..." with no word around it,
+which stays protected.
+
+Enable it with `"jev": { "enabled": true }` and a key in `TYPESAFE_API_KEY` or
+`~/.config/typesafe/api-key`. Tuning: `jev.pickThreshold` (0.5),
+`jev.keepThreshold` (0.2), `jev.jobTimeoutMs` (15000).
 
 ## Scanning files
 
@@ -313,6 +331,9 @@ npm test
   variable in bash, output cleaning of every occurrence, evasion attempts
   (base64, copies into variables and files, scripts outside the repo, WebFetch,
   commit messages, unknown tools), plus latency.
+- `test/classify.test.js`: the background classifier end to end against a local
+  fake of the API: pending protection, save, release, the unclear zone, the note
+  on the next tool result, the privacy of every request, and the API-down path.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.
