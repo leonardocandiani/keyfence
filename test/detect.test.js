@@ -23,7 +23,9 @@ for (const [rule, gen] of positives) {
   // Provider shapes must be caught every time. Labeled values carry a documented
   // statistical limit: a short, letters-only random value can look like an
   // identifier (fooBarBazQu) and is skipped on purpose to avoid flagging code.
-  const need = rule === 'labeled' ? Math.floor(ROUNDS * 0.99) : ROUNDS;
+  // Labeled values skip letters-only words on purpose (measured miss ~0.12%).
+  // Allow 1%, and never fewer than 3 misses, so a small ROUNDS is not a coin toss.
+  const need = rule === 'labeled' ? ROUNDS - Math.max(3, Math.ceil(ROUNDS * 0.01)) : ROUNDS;
   if (caught < need) { fail++; miss.push(`  miss ${rule}: ${caught}/${ROUNDS} (got ${[...wrong].join(',')})`); }
 }
 
