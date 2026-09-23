@@ -42,6 +42,7 @@ const COMMANDS = {
   install: { flags: ['--dry-run', '--settings'], usage: 'keyfence install [--dry-run] [--settings <path>]' },
   uninstall: { flags: ['--dry-run', '--settings'], usage: 'keyfence uninstall [--dry-run] [--settings <path>]' },
   config: { flags: [], usage: 'keyfence config' },
+  secret: { flags: [], usage: 'keyfence secret add|rotate|list|show|policy|revoke|reactivate|rm (values only at a hidden terminal prompt)' },
 };
 const VALUE_FLAGS = new Set(['--settings']);
 
@@ -251,6 +252,7 @@ function main(argv = process.argv.slice(2)) {
     return process.stdout.write(`usage:\n${Object.values(COMMANDS).map((c) => `  ${c.usage}`).join('\n')}\n`);
   }
   if (!COMMANDS[cmd]) return fail(`unknown command ${cmd}`, `commands: ${Object.keys(COMMANDS).join(', ')}`);
+  if (cmd === 'secret') return require('./cli-secret').main(rest);
   const parsed = parse(cmd, rest);
   if (parsed.error) return fail(parsed.error, parsed.hint);
   if (parsed.flags.help) return process.stdout.write(`usage: ${COMMANDS[cmd].usage}\n`);

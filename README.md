@@ -27,8 +27,8 @@
     <a href="#what-it-cannot-do">What it cannot do</a> •
     <a href="#configuration">Configuration</a> •
     <a href="#the-optional-classifier">The optional classifier</a> •
+    <a href="#the-vault">The vault</a> •
     <a href="#scanning-files">Scanning files</a> •
-    <a href="#performance">Performance</a> •
     <a href="#license">License</a>
   </p>
 </div>
@@ -278,6 +278,40 @@ Enable it with `"jev": { "enabled": true }` and a key in `TYPESAFE_API_KEY` or
 `~/.config/typesafe/api-key`. Tuning: `jev.pickThreshold` (0.5),
 `jev.keepThreshold` (0.2), `jev.jobTimeoutMs` (15000).
 
+## The vault
+
+Credentials can also live in keyfence's own vault instead of `.env` files, used
+by name and never shown:
+
+```
+keyfence secret add wavoip/test-device/sip --env test --field token \
+  --op browser.fill --target call.otonistark.com.br --fill username=token --fill password=token
+keyfence secret list
+keyfence secret show wavoip/test-device/sip
+keyfence secret rotate wavoip/test-device/sip
+keyfence secret revoke wavoip/test-device/sip
+```
+
+- Values are typed at a hidden prompt on a real terminal. There is no flag,
+  argument or pipe that takes one, and no command that prints one: `show` ends
+  with `value: never shown`. Agents run tools without a terminal, so only a
+  person can add or rotate a secret.
+- Each value is encrypted with AES-256-GCM, bound to its alias, field and
+  version. The master key lives in the macOS Keychain; elsewhere, in a `0600`
+  file named by `KEYFENCE_VAULT_KEY_FILE`.
+- Every secret has a policy: allowed operations, target hosts, commands and
+  projects, default deny. Shells and interpreters can never receive a secret.
+- Every vault value is protected in every session from the start, even one
+  that never appeared in a prompt: sent anywhere it is denied, and in any output
+  it becomes `⟨wavoip/test-device/sip⟩`. Revoked and rotated-out values stay
+  protected, since the provider may still accept them.
+- Reading the vault's files, its Keychain key or its module from a shell is
+  denied to the agent.
+
+This is phase 1 of [the vault design](docs/design/vault.md). The operations that
+use a secret without revealing it (`request`, `run`, `fill`) come next; until
+then the vault stores, protects and describes.
+
 ## Scanning files
 
 The detection engine is also a CLI:
@@ -334,6 +368,10 @@ npm test
 - `test/classify.test.js`: the background classifier end to end against a local
   fake of the API: pending protection, save, release, the unclear zone, the note
   on the next tool result, the privacy of every request, and the API-down path.
+- `test/vault.test.js`: encryption at rest, integrity (tampering, a ciphertext
+  moved to another alias), rotation, revocation, policy refusals, the buffer
+  wiped after use, the CLI never printing a value, and the hook protecting vault
+  values and guarding the vault.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

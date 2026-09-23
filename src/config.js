@@ -43,6 +43,7 @@ const DEFAULTS = {
       '(^|/)application_default_credentials\\.json$',
       '(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[A-Za-z0-9_.-]+)?$',
       '(^|/)\\.config/keyfence/secrets\\.env$',
+      '(^|/)\\.config/keyfence/vault(/|$)',
     ],
     extraPatterns: [],
   },

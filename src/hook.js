@@ -122,6 +122,28 @@ function pieces(text) {
   return out;
 }
 
+// Vault values, known by salted fingerprint only (the hook never decrypts).
+let vaultPrints = null;
+function vaultPrint() {
+  if (!vaultPrints) {
+    const { fingerprints } = require('./vault');
+    const fp = fingerprints();
+    vaultPrints = { salt: fp.salt, byPrint: new Map(fp.list.map((x) => [x.fp, x.alias])) };
+  }
+  return vaultPrints;
+}
+
+function vaultHit(text) {
+  const { salt, byPrint } = vaultPrint();
+  if (!byPrint.size || !text) return null;
+  const { fingerprint } = require('./vault');
+  for (const p of pieces(text)) {
+    const alias = byPrint.get(fingerprint(salt, p));
+    if (alias) return { rule: `vault:${alias}`, shape: shape(p), alias, value: p };
+  }
+  return null;
+}
+
 function findTainted(text, list) {
   if (!list.length || !text) return null;
   const byHash = new Map(list.filter((x) => x.h).map((x) => [x.h, x.rule]));
@@ -313,8 +335,15 @@ function stripHeredocs(cmd) {
   return cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, '<<heredoc');
 }
 
+// Reaching for the keyfence vault's key or code from a shell.
+const VAULT_KEY = /\bsecurity\b[^|;&]*\b(?:find-generic-password|dump-keychain|export)\b[^|;&]*keyfence-vault|\bsecurity\s+dump-keychain\b|require\([^)]*keyfence[^)]*\/vault|\bKEYFENCE_VAULT_KEY_FILE\b/;
+
 function vaultTarget(tool, input, cfg) {
-  const hit = (p) => cfg._vault.some((re) => re.test(p));
+  const { vaultDir } = require('./vault');
+  const dir = vaultDir();
+  const keyFile = process.env.KEYFENCE_VAULT_KEY_FILE || '';
+  const hit = (p) => cfg._vault.some((re) => re.test(p)) || (p && (p.startsWith(dir) || (keyFile && p === keyFile)));
+  if (tool === 'Bash' && VAULT_KEY.test(String(input.command || ''))) return 'the keyfence vault key';
   if (tool === 'Read' || tool === 'NotebookRead' || tool === 'Grep') {
     const p = String(input.file_path || input.notebook_path || input.path || '');
     return hit(p) ? p : null;
@@ -356,7 +385,7 @@ function judge(d, cfg) {
   const text = toolText(tool, input);
   const ttl = cfg.ttlHours * 3600e3;
   const list = readState(statePath(d.session_id), ttl);
-  const hit = findTainted(text, list);
+  const hit = findTainted(text, list) || vaultHit(text);
   pendingHit = Boolean(hit && hit.rule === 'pending');
   const file = String(input.file_path || input.notebook_path || '');
 
@@ -448,6 +477,11 @@ function onPostTool(d, cfg) {
     const rules = new Map(list.filter((x) => x.h && !x.d && x.rule !== 'pending').map((x) => [x.h, x.rule]));
     const label = (v, rule) => { const h = hash(v); return names.has(h) ? `⟨${names.get(h)}⟩` : `⟨keyfence:${rules.get(h) || rule}⟩`; };
     for (const f of findings) hide.set(f.value, label(f.value, f.rule));
+    const { salt, byPrint } = vaultPrint();
+    if (byPrint.size) {
+      const { fingerprint } = require('./vault');
+      for (const p of pieces(text)) { const a = byPrint.get(fingerprint(salt, p)); if (a && text.includes(p)) hide.set(p, `⟨${a}⟩`); }
+    }
     if (rules.size) {
       for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && text.includes(p)) hide.set(p, label(p));
     }
