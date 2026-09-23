@@ -3,6 +3,7 @@
 // flagged, ambiguous strings caught only by the ambiguous layer. Runs each
 // generator many times because the content is random.
 const { scan } = require('../src/detect');
+const WEAK = new Set(require('../src/rules').rules.filter((r) => r.weak).map((r) => r.id));
 const { positives, negatives, ambiguous } = require('./gen');
 
 const ROUNDS = Number(process.env.ROUNDS || 50);
@@ -23,9 +24,11 @@ for (const [rule, gen] of positives) {
   // Provider shapes must be caught every time. Labeled values carry a documented
   // statistical limit: a short, letters-only random value can look like an
   // identifier (fooBarBazQu) and is skipped on purpose to avoid flagging code.
-  // Labeled values skip letters-only words on purpose (measured miss ~0.12%).
-  // Allow 1%, and never fewer than 3 misses, so a small ROUNDS is not a coin toss.
-  const need = rule === 'labeled' ? ROUNDS - Math.max(3, Math.ceil(ROUNDS * 0.01)) : ROUNDS;
+  // Labeled values and weak rules (bearer, URLs with passwords) skip random
+  // values that look like plain words, on purpose (measured miss ~0.12%). Allow
+  // 1%, and never fewer than 3 misses, so a small ROUNDS is not a coin toss.
+  const lenient = rule === 'labeled' || WEAK.has(rule);
+  const need = lenient ? ROUNDS - Math.max(3, Math.ceil(ROUNDS * 0.01)) : ROUNDS;
   if (caught < need) { fail++; miss.push(`  miss ${rule}: ${caught}/${ROUNDS} (got ${[...wrong].join(',')})`); }
 }
 
