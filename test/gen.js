@@ -125,6 +125,8 @@ const negatives = [
   j('aws_access_key_id = AK', 'IAIOSFODNN7EXAMPLE'),
   '"token": "⟨META_ACCESS_TOKEN⟩"', // keyfence's own redaction label
   "  'apiKey: config.openaiKey',", // the value's closing quote belongs to the code, not the value
+  '"secret": "service/api"', // an alias or path is a name, not a value
+  '"secret": "wavoip/test-device/sip"',
   'auth: SESSION_TTL=3600',
   'token = user == null ? none : user.token',
   'secret_key: sk-ant-api03-...',
