@@ -73,6 +73,9 @@ function looksSecret(v, labeled = false) {
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;
+  // Under a label, a long value whose case flips like random text is a token even
+  // when it happens to end in digits after a `_` (the name_v2 rule below).
+  if (labeled && v.length >= 20 && caseSwitches(v) >= 6 && entropy(v) >= 3.5) return true;
   // Chained assignment in docs (`auth: SESSION_TTL=3600`): judge the right side.
   const asg = /^[A-Z][A-Z0-9_]*=(.+)$/.exec(v);
   if (asg) return looksSecret(asg[1]);
@@ -83,7 +86,7 @@ function looksSecret(v, labeled = false) {
   if (/^\$\{?[A-Z_][A-Z0-9_]*\}?$/.test(v)) return false; // $VAR / ${VAR}
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(v)) return false; // member access
   if (/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+\/?$/.test(v)) return false; // lowercase path or alias: service/api, wavoip/test-device/sip
-  if (/^[#.][A-Za-z][\w-]*$/.test(v)) return false; // CSS selector: #sip-password, .login-field
+  if (/^[#.][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(v)) return false; // CSS selector: #sip-password, .login-field
   if (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))) return false; // snake_case, UPPER_SNAKE, kebab
   const h = entropy(v);
   const floor = v.length < 16 ? 2.8 : 3.0;
