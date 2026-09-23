@@ -127,6 +127,7 @@ const negatives = [
   "  'apiKey: config.openaiKey',", // the value's closing quote belongs to the code, not the value
   '"secret": "service/api"', // an alias or path is a name, not a value
   '"secret": "wavoip/test-device/sip"',
+  '"password": "#sip-password"', // a CSS selector names a field, it is not the value
   'auth: SESSION_TTL=3600',
   'token = user == null ? none : user.token',
   'secret_key: sk-ant-api03-...',
