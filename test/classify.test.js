@@ -22,7 +22,7 @@ fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n');
 const keyFile = path.join(tmp, 'api-key');
 fs.writeFileSync(keyFile, 'test-key');
 const cfgFile = path.join(tmp, 'config.json');
-const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, TYPESAFE_API_KEY: '' };
+const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, TYPESAFE_API_KEY: '', KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key') };
 
 const cases = [];
 const check = (name, got, want) => cases.push({ name, got, want, ok: got === want });
@@ -31,7 +31,7 @@ const HEX = '0123456789abcdef';
 
 const secret = r(32, HEX); // unlabeled lowercase hex: no rule settles it
 const plate = `PED${r(8, '0123456789')}`; // an order number: long enough to be tainted, not a secret
-const fuzzy = `Zx${r(10, 'abcdefghijk0123456789')}`; // the fake classifier is unsure about this one
+const fuzzy = `Zx${r(5, 'abcdefghijk')}${r(5, '0123456789')}`; // letters then digits, always a candidate; the fake classifier is unsure about it
 const bodies = [];
 const server = http.createServer((req, res) => {
   let raw = '';

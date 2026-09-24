@@ -95,20 +95,29 @@ git ignores it, otherwise to a private `~/.config/keyfence/secrets.env` (both
 `0600`). Values are quoted so the file loads back intact with `source`, even
 with quotes or `;` inside.
 
-It gets a name in this order:
+It is saved as a **credential**, not a loose value: which service, whose
+account, and which value is the login, the password, the token or the URL.
+
+```
+you:  login=robson.silva@empresa.com.br
+      senha=robson2024
+      (in the SIS-api project)
+
+keyfence: vault record  sis/robson  (login, password)
+          .env          SIS_ROBSON_LOGIN, SIS_ROBSON_PASSWORD
+```
 
 | You send | Saved as |
 |---|---|
-| `PAINEL_PASSWORD=...` | `PAINEL_PASSWORD`, the label you gave it |
-| a known provider's token | the name its SDK reads: `META_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`, `OPENAI_API_KEY`... |
-| "the password for wavoip: ..." or "senha da wavoip: ..." | `WAVOIP_PASSWORD`, the kind word and the subject after it |
-| `fipe-api-key=...` | `FIPE_API_KEY`, the label with `-` turned into `_` |
-| a link with `?key=...` (or `&token=`, `?access_token=`...) | the API's host plus the kind: `api.placafipe.com.br?key=` becomes `PLACAFIPE_API_KEY` |
-| "Login SIS" followed by `Senha: ...` | `SIS_PASSWORD`, the subject taken from the login line |
-| `password: ...` / `senha: ...` | `PASSWORD` (also `API_KEY`, `TOKEN`, `PIN`, `CREDENTIAL`) |
+| a login and a password | one record `service/account` with both; the service from the words ("senha da wavoip"), the link's host or the project, the account from the login |
+| a new password for an account keyfence already has | a **rotation** of that record; the login stays, the old version is kept |
+| a known provider's token | the name its SDK reads: `META_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`... |
+| `PAINEL_PASSWORD=...` | the name you wrote |
+| a link with `?key=...` | the API's host plus the kind: `PLACAFIPE_API_KEY` |
 
-The same token pasted twice is saved once; a second value under a taken name
-becomes `_2` and never overwrites the first.
+"senha do robson" and "senha da wavoip" read the same; keyfence tells a person
+from a service by what the vault already holds. Every record is marked as
+exposed, since it came through the chat, and `keyfence secret list` shows it.
 
 Underneath, keyfence works in three layers.
 
@@ -359,7 +368,7 @@ npm test
 - `test/detect.test.js`: every provider format caught in every one of N random
   rounds (default 50, `ROUNDS=300` for more), 42 negatives taken from real code,
   and the high-entropy layer.
-- `test/hook.test.js`: 93 end-to-end scenarios running the real hook binary
+- `test/hook.test.js`: 99 end-to-end scenarios running the real hook binary
   inside throwaway git repos: vault reads, capture (names, reuse, `_2`, quotes
   that load back intact, the global fallback), injection that really sets the
   variable in bash, output cleaning of every occurrence, evasion attempts
@@ -372,6 +381,8 @@ npm test
   moved to another alias), rotation, revocation, policy refusals, the buffer
   wiped after use, the CLI never printing a value, and the hook protecting vault
   values and guarding the vault.
+- `test/credential.test.js`: credential records: service, account, which value
+  is the login, names, environment, two services in one message.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

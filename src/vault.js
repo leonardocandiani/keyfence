@@ -149,7 +149,7 @@ function add(alias, fields, meta = {}) {
 }
 
 /** New version for the same fields; the previous version is kept until purged. */
-function rotate(alias, fields) {
+function rotate(alias, fields, { exposed = false } = {}) {
   const v = load();
   const s = v.secrets[alias];
   if (!s) throw new Error(`no secret ${alias}`);
@@ -160,9 +160,29 @@ function rotate(alias, fields) {
   const version = s.version + 1;
   const { boxes, fps } = sealFields(key, v, alias, version, fields);
   s.previous = { version: s.version, fields: s.fields, fingerprints: s.fingerprints };
-  Object.assign(s, { version, fields: boxes, fingerprints: fps, status: 'active', exposed: false, rotated: new Date().toISOString() });
+  Object.assign(s, { version, fields: boxes, fingerprints: fps, status: 'active', exposed, rotated: new Date().toISOString() });
   save(v);
   return describe(alias, s);
+}
+
+/**
+ * Keep a credential current without a person in the loop (capture). New alias:
+ * add. Same values: nothing. Different values: rotate, merging the fields
+ * already stored with the new ones, so a new password keeps the saved login.
+ */
+async function upsert(alias, fields, meta = {}) {
+  const v = load();
+  const s = v.secrets[alias];
+  if (!s) return { action: 'added', ...add(alias, fields, meta) };
+  const same = Object.entries(fields).every(([k, val]) => s.fingerprints[k] === fingerprint(v.salt, Buffer.from(String(val))));
+  if (same) return { action: 'unchanged', ...describe(alias, s) };
+  const merged = s.status === 'active' ? await use(alias, (plain) => Object.fromEntries(Object.entries(plain).map(([k, b]) => [k, Buffer.from(b)]))) : {};
+  for (const [k, val] of Object.entries(fields)) merged[k] = Buffer.from(String(val));
+  if (Object.keys(s.fields).some((k) => !(k in merged))) {
+    remove(alias);
+    return { action: 'replaced', ...add(alias, merged, { ...meta, policy: s.policy }) };
+  }
+  return { action: 'rotated', ...rotate(alias, merged, { exposed: Boolean(meta.exposed) }) };
 }
 
 function setStatus(alias, status) {
@@ -243,4 +263,4 @@ function fingerprints() {
   }
 }
 
-module.exports = { add, rotate, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
+module.exports = { add, upsert, rotate, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };

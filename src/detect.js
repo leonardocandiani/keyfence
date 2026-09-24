@@ -89,8 +89,12 @@ function looksSecret(v, labeled = false) {
   if (/^[#.][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(v)) return false; // CSS selector: #sip-password, .login-field
   if (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))) return false; // snake_case, UPPER_SNAKE, kebab
   const h = entropy(v);
-  const floor = v.length < 16 ? 2.8 : 3.0;
+  // Under a label a weak password is still a password (robson9999): lower floor.
+  const floor = labeled ? 2.2 : v.length < 16 ? 2.8 : 3.0;
   if (/^[A-Za-z]+$/.test(v)) {
+    // Under a password label a word is the password ("senha: flamengo"); under
+    // token or key it is more likely a field name ("token": "Categoria").
+    if (typeof labeled === 'string' && /senha|pass|pwd|contrase|\bpin\b/i.test(labeled)) return v.length >= 6;
     // A word (word, Word, WORD) is not a secret; random letters switch case often.
     if (/^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(v)) return false;
     return caseSwitches(v) >= 3 && h >= floor;
@@ -157,7 +161,7 @@ function scanLabeled(text) {
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
-    if (!looksSecret(value, true)) continue;
+    if (!looksSecret(value, label)) continue;
     const start = at;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }

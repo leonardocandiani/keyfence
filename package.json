@@ -1,6 +1,6 @@
 {
   "name": "keyfence",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Keeps secrets from leaking out of AI coding agent sessions: taints every credential it sees and blocks it from leaving the machine.",
   "license": "MIT",
   "author": "Leonardo Candiani",
@@ -24,7 +24,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/detect.test.js && node test/hook.test.js && node test/classify.test.js && node test/vault.test.js && node test/cli.test.js && node test/jev.test.js",
+    "test": "node test/detect.test.js && node test/hook.test.js && node test/classify.test.js && node test/vault.test.js && node test/credential.test.js && node test/cli.test.js && node test/jev.test.js",
     "calibrate": "node test/jev-calibrate.js"
   },
   "engines": {

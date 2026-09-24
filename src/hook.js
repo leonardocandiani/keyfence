@@ -246,21 +246,43 @@ function note(event, text) {
 // ---------------------------------------------------------------------------
 // events
 
-// Capture mode: save the values to the env file and return the note that tells
-// the agent their names, or null when nothing could be saved.
-function captureText(d, prompt, keep, cfg, ttl) {
+// Capture mode: turn the values into credential records (service/account with
+// login, password, token, url), store each in the vault and in the env file under
+// names that say whose they are, and return the note for the agent (null when
+// nothing could be saved).
+// `ctx` is { d, prompt, cfg, ttl }: the session, the user's message, config and taint lifetime.
+async function captureText(ctx, keep, logins = []) {
+  const { d, prompt, cfg, ttl } = ctx;
   if (!keep.length) return null;
   try {
+    const { build } = require('./credential');
     const { save } = require('./capture');
-    const r = save(keep, prompt, d.cwd, cfg);
-    mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
-    const names = r.saved.map((x) => `$${x.name} (${x.rule}${x.reused ? ', already saved' : ''})`).join(', ');
-    const where = r.project ? `the project's git-ignored ${r.file}` : `${r.file} (outside the repo)`;
-    return `The user's message contains a real credential. keyfence saved it to ${where} as ${names}. ` +
-      'Work with it by name from now on: reference the variable in commands (keyfence loads it into any Bash command that uses it) or load the file in code. ' +
-      'Never repeat the value in replies, code, comments, logs or commit messages.';
+    const lines = [];
+    let known = [];
+    try { known = require('./vault').list().map((x) => x.alias); } catch { /* no vault yet */ }
+    for (const rec of build(prompt, keep, d.cwd, logins, known)) {
+      const items = Object.entries(rec.fields).map(([role, value]) => ({ value, rule: role, envName: rec.envNames[role] }));
+      const r = save(items, prompt, d.cwd, cfg);
+      mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
+      const stored = await storeInVault(rec, cfg);
+      const names = r.saved.map((x) => `${x.rule} $${x.name}${x.reused ? ' (already saved)' : ''}`).join(', ');
+      lines.push(`${rec.alias} [${names}] in ${r.project ? "the project's git-ignored" : 'the private'} ${r.file}${stored}`);
+    }
+    return `The user's message contains a credential. keyfence saved it as ${lines.join('; ')}. ` +
+      'Work with it by name from now on: reference the variables in commands (keyfence loads them into any Bash command that uses them) or load the file in code. ' +
+      'Never repeat a value in replies, code, comments, logs or commit messages.';
   } catch {
     return null;
+  }
+}
+
+async function storeInVault(rec, cfg) {
+  if (cfg.capture.vault === false) return '';
+  try {
+    const r = await require('./vault').upsert(rec.alias, rec.fields, { environment: rec.environment, exposed: true });
+    return `, and in the keyfence vault as ${rec.alias} (${r.action})`;
+  } catch {
+    return '';
   }
 }
 
@@ -308,18 +330,19 @@ async function onPrompt(d, cfg) {
     return;
   }
   const pending = startClassifier(d, prompt, findings, cfg, ttl);
-  const parts = [...takeNotices(d.session_id, ttl), ...promptNotes(d, prompt, findings, items, pending, cfg, ttl)];
+  const parts = [...takeNotices(d.session_id, ttl), ...(await promptNotes({ d, prompt, cfg, ttl }, findings, items, pending))];
   if (parts.length) note('UserPromptSubmit', parts.join(' '));
 }
 
 // What the agent is told about this prompt: saved names, or how to handle what
 // could not be saved, plus the words still being checked.
-function promptNotes(d, prompt, findings, items, pending, cfg, ttl) {
+async function promptNotes(ctx, findings, items, pending) {
+  const { cfg } = ctx;
   const parts = [];
   const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
   if (items.length && cfg.promptMode !== 'capture') parts.push(WARN_TEXT(kinds));
   if (items.length && cfg.promptMode === 'capture') {
-    const saved = captureText(d, prompt, findings, cfg, ttl);
+    const saved = await captureText(ctx, findings);
     if (saved || !pending) parts.push(saved || fallbackText(kinds));
   }
   if (pending) {
@@ -336,7 +359,7 @@ function stripHeredocs(cmd) {
 }
 
 // Reaching for the keyfence vault's key or code from a shell.
-const VAULT_KEY = /\bsecurity\b[^|;&]*\b(?:find-generic-password|dump-keychain|export)\b[^|;&]*keyfence-vault|\bsecurity\s+dump-keychain\b|require\([^)]*keyfence[^)]*\/vault|\bKEYFENCE_VAULT_KEY_FILE\b/;
+const VAULT_KEY = /\bsecurity\b[^|;&]*\b(?:find-generic-password|dump-keychain|export)\b[^|;&]*keyfence-vault|\bsecurity\s+dump-keychain\b|require\([^)]*keyfence[^)]*\/vault/;
 
 function vaultTarget(tool, input, cfg) {
   const { vaultDir } = require('./vault');
@@ -477,10 +500,12 @@ function onPostTool(d, cfg) {
     const rules = new Map(list.filter((x) => x.h && !x.d && x.rule !== 'pending').map((x) => [x.h, x.rule]));
     const label = (v, rule) => { const h = hash(v); return names.has(h) ? `⟨${names.get(h)}⟩` : `⟨keyfence:${rules.get(h) || rule}⟩`; };
     for (const f of findings) hide.set(f.value, label(f.value, f.rule));
+    // A variable name beats the vault alias: it is what the agent writes.
+    for (const p of pieces(text)) if (names.has(hash(p)) && text.includes(p)) hide.set(p, `⟨${names.get(hash(p))}⟩`);
     const { salt, byPrint } = vaultPrint();
     if (byPrint.size) {
       const { fingerprint } = require('./vault');
-      for (const p of pieces(text)) { const a = byPrint.get(fingerprint(salt, p)); if (a && text.includes(p)) hide.set(p, `⟨${a}⟩`); }
+      for (const p of pieces(text)) { const a = byPrint.get(fingerprint(salt, p)); if (a && !hide.has(p) && text.includes(p)) hide.set(p, `⟨${a}⟩`); }
     }
     if (rules.size) {
       for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && text.includes(p)) hide.set(p, label(p));

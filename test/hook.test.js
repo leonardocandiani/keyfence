@@ -21,7 +21,8 @@ const BASE = { jev: { enabled: false }, capture: { globalFile: globalEnv } };
 fs.writeFileSync(cfgFile, JSON.stringify(BASE));
 
 const SID = `test-${process.pid}-${Date.now()}`;
-const env = { ...process.env, KEYFENCE_CONFIG: cfgFile };
+// The vault is isolated too: a test must never write to the real one or the Keychain.
+const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key') };
 const gen = (id) => positives.find((p) => p[0] === id)[1]();
 
 function run(payload) {
@@ -162,6 +163,29 @@ check('names: a bare "senha:" is PASSWORD, not SENHA', nameOf(`senha: ${PW}`), '
 check('names: "login do painel ... senha" becomes PAINEL_PASSWORD', nameOf(`o login do painel é leo e a senha: ${PW}`), 'PAINEL_PASSWORD');
 const fb = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `usa isso: ${gen('github').slice(4)}Zq9x` }).out;
 check('fallback: when nothing is saved, the agent saves it itself instead of asking again', /Do not ask the user to send it again/.test(JSON.stringify(fb)), true);
+// --- credential records: the SIS test, as the user sent it ------------------
+const sisRepo = path.join(tmp, 'SIS-api');
+fs.mkdirSync(sisRepo);
+execFileSync('git', ['init', '-q'], { cwd: sisRepo });
+fs.writeFileSync(path.join(sisRepo, '.gitignore'), '.env\n');
+const digits = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
+const sisPw = `robson${digits(4)}`; // the shape of the real test: a name and digits
+const sisNote = run({ hook_event_name: 'UserPromptSubmit', cwd: sisRepo, prompt: `login=robson.silva@empresa.com.br\nsenha=${sisPw}\nteste aí com esse também` }).out;
+const sisEnv = readEnv(path.join(sisRepo, '.env'));
+check('credential: login and password saved together under their names', sisEnv.includes('SIS_ROBSON_LOGIN=robson.silva@empresa.com.br') && sisEnv.includes(`SIS_ROBSON_PASSWORD=${sisPw}`), true);
+check('credential: the agent is told the record and the names', /sis\/robson/.test(JSON.stringify(sisNote)) && /SIS_ROBSON_PASSWORD/.test(JSON.stringify(sisNote)), true);
+process.env.KEYFENCE_VAULT_DIR = env.KEYFENCE_VAULT_DIR;
+process.env.KEYFENCE_VAULT_KEY_FILE = env.KEYFENCE_VAULT_KEY_FILE;
+const vaultMod = require('../src/vault');
+const rec1 = vaultMod.show('sis/robson');
+check('credential: one record in the vault with both fields', rec1 && rec1.fields.slice().sort().join(','), 'login,password');
+check('credential: marked as exposed (it came through the chat)', rec1 && rec1.exposed, true);
+const sisPw2 = `robson${digits(5)}`;
+run({ hook_event_name: 'UserPromptSubmit', cwd: sisRepo, prompt: `nova senha do robson no sis: senha=${sisPw2}` });
+const rec2 = vaultMod.show('sis/robson');
+check('credential: a new password for the same account rotates the record', rec2 && rec2.version, 2);
+check('credential: rotation keeps the login', rec2 && rec2.fields.includes('login'), true);
+
 const openRepo = path.join(tmp, 'openrepo');
 fs.mkdirSync(openRepo);
 execFileSync('git', ['init', '-q'], { cwd: openRepo });

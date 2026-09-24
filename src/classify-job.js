@@ -32,8 +32,9 @@ async function run(jobFile) {
   settle(job.sid, verdicts, secrets, unclear, ttl);
   if (!secrets.length) return;
   const items = secrets.map((value) => ({ value, rule: 'classifier', start: job.prompt.indexOf(value) }));
+  const logins = verdicts.filter((v) => v.login >= cfg.jev.pickThreshold && !secrets.includes(v.value)).map((v) => v.value);
   const d = { session_id: job.sid, cwd: job.cwd };
-  const saved = cfg.promptMode === 'capture' ? captureText(d, job.prompt, items, cfg, ttl) : null;
+  const saved = cfg.promptMode === 'capture' ? await captureText({ d, prompt: job.prompt, cfg, ttl }, items, logins) : null;
   pushNotice(job.sid, saved || (cfg.promptMode === 'capture' ? fallbackText('classifier') : WARN_TEXT('classifier')), ttl);
 }
 

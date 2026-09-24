@@ -137,6 +137,7 @@ function maskIds(text, cands) {
   return masked;
 }
 
+const LOGIN_Q = 'Is ⟨ID⟩ in `message` the username, login or email used to sign in, given together with a password?';
 const PICK = 'Is ⟨ID⟩ in `message` a secret the user is sharing: a password, API key, token or other credential that grants access? '
   + 'Usernames, emails used only as logins, ids, hashes, commit SHAs, plates and codes are not secrets unless the message uses them as the password.';
 
@@ -148,7 +149,10 @@ async function judge(text, cands, cfg) {
   const key = apiKey(cfg);
   if (!key || !cands.length) return null;
   const questions = {};
-  cands.forEach((c, i) => { questions[`c${i + 1}`] = { type: 'noul', instructions: PICK.replace('ID', `c${i + 1}`) }; });
+  cands.forEach((c, i) => {
+    questions[`c${i + 1}`] = { type: 'noul', instructions: PICK.replace('ID', `c${i + 1}`) };
+    questions[`l${i + 1}`] = { type: 'noul', instructions: LOGIN_Q.replace('ID', `c${i + 1}`) };
+  });
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), cfg.jev.jobTimeoutMs || 15000);
   try {
@@ -164,7 +168,8 @@ async function judge(text, cands, cfg) {
     });
     if (!res.ok) return null;
     const j = await res.json();
-    const out = cands.map((value, i) => ({ value, p: j && j.answers && j.answers[`c${i + 1}`] && j.answers[`c${i + 1}`].noul }));
+    const a = (j && j.answers) || {};
+    const out = cands.map((value, i) => ({ value, p: a[`c${i + 1}`] && a[`c${i + 1}`].noul, login: (a[`l${i + 1}`] && a[`l${i + 1}`].noul) || 0 }));
     return out.every((x) => typeof x.p === 'number') ? out : null;
   } catch {
     return null;

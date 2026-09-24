@@ -78,18 +78,22 @@ const subjectOf = (w) => (w && !STOP.test(w) ? ascii(w) : '');
 // The nearest cue before the value names its kind. The subject comes from the
 // words after the cue ("senha da wavoip": WAVOIP_PASSWORD) or, failing that,
 // from a login/account phrase nearby ("Login SIS ... Senha:": SIS_PASSWORD).
-function kindName(item, text) {
+function kindOf(item, text) {
   const at = typeof item.start === 'number' ? item.start : text.indexOf(item.value);
   const before = at > 0 ? text.slice(Math.max(0, at - 160), at) : String(item.name || '');
-  let best = null;
-  for (const [re, kind] of KINDS) {
-    for (const m of before.matchAll(new RegExp(re.source, 'gi'))) {
-      if (!best || m.index > best.index) best = { index: m.index, kind };
-    }
-  }
-  if (!best) return 'SECRET';
-  const subj = subjectNear(before, best.index);
-  return subj ? `${subj}_${best.kind}` : best.kind;
+  const cues = [];
+  for (const [re, kind] of KINDS) for (const m of before.matchAll(new RegExp(re.source, 'gi'))) cues.push({ index: m.index, kind });
+  if (!cues.length) return { kind: 'SECRET', subject: '' };
+  cues.sort((a, b) => b.index - a.index);
+  // The kind comes from the nearest cue; the subject from the nearest cue that has
+  // one ("nova senha do robson no sis: senha=..." names robson, not the bare label).
+  const subject = cues.map((c) => subjectNear(before, c.index)).find(Boolean) || '';
+  return { kind: cues[0].kind, subject };
+}
+
+function kindName(item, text) {
+  const { kind, subject } = kindOf(item, text);
+  return subject ? `${subject}_${kind}` : kind;
 }
 
 const AFTER_CUE = /^\S*\s+(?:d[aoe]s?|of|for)\s+(?:the\s+)?([^\s,.:;!?/]{2,24})/i;
@@ -185,7 +189,7 @@ function save(items, prompt, cwd, cfg) {
       saved.push({ name: existing[0], rule: it.rule, value: it.value, reused: true });
       continue;
     }
-    const base = nameFor(it, prompt);
+    const base = it.envName || nameFor(it, prompt);
     let name = base;
     for (let i = 2; env.has(name); i++) name = `${base}_${i}`;
     env.set(name, it.value);
@@ -200,4 +204,4 @@ function save(items, prompt, cwd, cfg) {
   return { file, project, saved };
 }
 
-module.exports = { save, nameFor, targetFile, parseEnv, NAMES };
+module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, NAMES, CUE_LABEL };
