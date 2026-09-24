@@ -42,11 +42,12 @@ const COMMANDS = {
   install: { flags: ['--dry-run', '--settings'], usage: 'keyfence install [--dry-run] [--settings <path>]' },
   uninstall: { flags: ['--dry-run', '--settings'], usage: 'keyfence uninstall [--dry-run] [--settings <path>]' },
   config: { flags: [], usage: 'keyfence config' },
+  discover: { flags: ['--apply', '--depth'], usage: 'keyfence discover [dir...] [--depth N] [--apply]  (find credentials in .env files and shell rc files; without --apply: list only)' },
   maintain: { flags: ['--apply', '--install', '--uninstall'], usage: 'keyfence maintain [--apply] [--install|--uninstall]  (tidy, merge duplicates, list what to rotate; --install runs it daily)' },
   tidy: { flags: ['--apply'], usage: 'keyfence tidy [env-file...] [--apply]  (without --apply: show the plan only)' },
   secret: { flags: [], usage: 'keyfence secret add|rotate|list|show|policy|revoke|reactivate|rm (values only at a hidden terminal prompt)' },
 };
-const VALUE_FLAGS = new Set(['--settings']);
+const VALUE_FLAGS = new Set(['--settings', '--depth']);
 
 function parse(cmd, argv) {
   const spec = COMMANDS[cmd];
@@ -247,6 +248,20 @@ function cmdUninstall(flags) {
   process.stdout.write(`uninstall: ${flags['dry-run'] ? 'would remove' : 'removed'} ${removed} hook entr${removed === 1 ? 'y' : 'ies'} from ${tilde(file)}\n`);
 }
 
+async function cmdDiscover(flags, args) {
+  const { discover } = require('./discover');
+  const cfg = config.load().discover;
+  const roots = args.length ? args.map((a) => path.resolve(a)) : cfg.roots.map((x) => x.replace(/^~(?=\/|$)/, HOME)).filter((x) => fs.existsSync(x));
+  const r = await discover({ roots, depth: Number(flags.depth) || cfg.depth, apply: Boolean(flags.apply) });
+  const rows = r.records.map((x) => ({ alias: x.alias, field: x.role, places: x.places.length, first: x.places[0], exposed: x.exposed ? 'yes' : 'no', action: x.action }));
+  const out = [`discover: ${r.records.length} credential(s) in ${r.files} file(s) under ${roots.map(tilde).join(', ')}`];
+  if (rows.length) out.push(table('found', ['alias', 'field', 'places', 'first', 'exposed', 'action'], rows));
+  const exposed = r.records.filter((x) => x.exposed).length;
+  if (exposed) out.push(`rotate_soon: ${exposed} of them appear in past Claude Code sessions`);
+  if (!flags.apply && rows.length) out.push(help(['Run `keyfence discover --apply` to register them in the vault (sources are not changed)', 'Run `keyfence secret show <alias>` to see where one lives']));
+  process.stdout.write(`${out.join('\n')}\n`);
+}
+
 async function cmdMaintain(flags) {
   const m = require('./maintain');
   if (flags.install) { const r = m.install(); return process.stdout.write(`maintain: scheduled ${r.schedule}\nplist: ${tilde(r.plist)}\nlog: ${tilde(r.log)}\n`); }
@@ -254,6 +269,7 @@ async function cmdMaintain(flags) {
   const r = await m.maintain({ apply: Boolean(flags.apply) });
   const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
   const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
+  out.push(`discovered: ${r.discovered.length} new credential(s)${r.discovered.length ? `: ${r.discovered.map((x) => x.alias).join(', ')}` : ''}`);
   out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
   const moved = r.synced.filter((x) => x.action !== 'unchanged' && x.action !== 'checked');
   out.push(moved.length ? table('vault', ['alias', 'action'], moved) : `vault: ${r.synced.length} credential(s) in step with their env files`);
@@ -313,7 +329,7 @@ function main(argv = process.argv.slice(2)) {
   if (parsed.error) return fail(parsed.error, parsed.hint);
   if (parsed.flags.help) return process.stdout.write(`usage: ${COMMANDS[cmd].usage}\n`);
   try {
-    const res = ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig, tidy: cmdTidy, maintain: cmdMaintain })[cmd](parsed.flags, parsed.args);
+    const res = ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig, tidy: cmdTidy, maintain: cmdMaintain, discover: cmdDiscover })[cmd](parsed.flags, parsed.args);
     if (res && res.catch) res.catch((e) => fail(e.message, null, 1));
   } catch (e) {
     fail(e.message, null, 1);

@@ -23,6 +23,8 @@ const DEFAULTS = {
   },
   // Replace remembered secrets in tool output before the agent sees it.
   redactOutput: true,
+  // Where `discover` and the daily `maintain` look for credentials already on disk.
+  discover: { roots: ['~'], depth: 5 },
   // Hours a tainted secret stays protected in a session.
   ttlHours: 12,
   // Taint high-entropy strings with no label or known prefix when they appear in

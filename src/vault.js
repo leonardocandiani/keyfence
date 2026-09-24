@@ -143,7 +143,7 @@ function add(alias, fields, meta = {}) {
   const { boxes, fps } = sealFields(key, v, alias, 1, fields);
   const now = new Date().toISOString();
   v.secrets[alias] = { environment: env, status: 'active', version: 1, fields: boxes, fingerprints: fps, previous: null,
-    exposed: Boolean(meta.exposed), policy, created: now, rotated: null, lastUsed: null };
+    exposed: Boolean(meta.exposed), policy, created: now, rotated: null, lastUsed: null, sources: [...new Set(meta.sources || [])] };
   save(v);
   return describe(alias, v.secrets[alias]);
 }
@@ -175,14 +175,30 @@ async function upsert(alias, fields, meta = {}) {
   const s = v.secrets[alias];
   if (!s) return { action: 'added', ...add(alias, fields, meta) };
   const same = Object.entries(fields).every(([k, val]) => s.fingerprints[k] === fingerprint(v.salt, Buffer.from(String(val))));
-  if (same) return { action: 'unchanged', ...describe(alias, s) };
+  if (same) return { action: noteSources(alias, meta) ? 'sources updated' : 'unchanged', ...describe(alias, load().secrets[alias]) };
   const merged = s.status === 'active' ? await use(alias, (plain) => Object.fromEntries(Object.entries(plain).map(([k, b]) => [k, Buffer.from(b)]))) : {};
   for (const [k, val] of Object.entries(fields)) merged[k] = Buffer.from(String(val));
   if (Object.keys(s.fields).some((k) => !(k in merged))) {
     remove(alias);
     return { action: 'replaced', ...add(alias, merged, { ...meta, policy: s.policy }) };
   }
-  return { action: 'rotated', ...rotate(alias, merged, { exposed: Boolean(meta.exposed) }) };
+  rotate(alias, merged, { exposed: Boolean(meta.exposed) });
+  noteSources(alias, meta);
+  return { action: 'rotated', ...describe(alias, load().secrets[alias]) };
+}
+
+// Where a credential lives (env files, rc files): metadata, merged, never values.
+// Also records an exposure found later. Returns true when something changed.
+function noteSources(alias, meta) {
+  const v = load();
+  const s = v.secrets[alias];
+  const add = (meta.sources || []).filter((x) => !(s.sources || []).includes(x));
+  const expose = Boolean(meta.exposed) && !s.exposed;
+  if (!add.length && !expose) return false;
+  s.sources = [...(s.sources || []), ...add];
+  if (expose) s.exposed = true;
+  save(v);
+  return true;
 }
 
 function setStatus(alias, status) {
@@ -217,7 +233,7 @@ function setPolicy(alias, policy) {
 
 function describe(alias, s) {
   return { alias, environment: s.environment, status: s.status, version: s.version, fields: Object.keys(s.fields),
-    exposed: s.exposed, policy: s.policy, created: s.created, rotated: s.rotated, lastUsed: s.lastUsed };
+    exposed: s.exposed, policy: s.policy, created: s.created, rotated: s.rotated, lastUsed: s.lastUsed, sources: s.sources || [] };
 }
 
 function list(prefix = '') {

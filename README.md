@@ -328,6 +328,8 @@ Credentials pile up. keyfence keeps them in order on its own:
 ```
 keyfence tidy              # plan: which generic names (PASSWORD, SENHA, SECRET_2...) get real ones
 keyfence tidy --apply      # do it, with a 0600 backup of the env file
+keyfence discover          # find credentials already on disk: .env files and shell exports
+keyfence discover --apply  # register them in the vault, with every place each one lives
 keyfence maintain          # plan for every env file keyfence ever wrote to
 keyfence maintain --install  # run `maintain --apply` every day at 09:30 (launchd, headless)
 ```
@@ -340,6 +342,13 @@ keyfence maintain --install  # run `maintain --apply` every day at 09:30 (launch
   credential (an old false capture) is left alone.
 - **Nothing that reads a name breaks.** If any tracked file of the project reads
   the old name, it stays and the new names are added next to it.
+- **Credentials already on disk are found.** `discover` reads the `.env` files
+  of your projects and the `export` lines of your shell files, recognizes a
+  credential by its format or by its name, and registers it once, however many
+  places hold it. A key in five projects is one record that lists all five.
+  Sources are never changed, a record is never overwritten with another value,
+  and a value seen in a past session is marked for rotation. The daily
+  `maintain` runs it too, so new projects are picked up on their own.
 - **Duplicates merge.** The same value under `sis/default` and `sis/robson` keeps
   the specific record; any other duplicate is only reported.
 - **What needs you is listed.** Secrets that went through a chat (rotate them)
@@ -409,6 +418,9 @@ npm test
   is the login, names, environment, two services in one message.
 - `test/tidy.test.js`: renaming from the original message, recovered logins,
   names code still reads, backups, duplicate merging and the rotation list.
+- `test/discover.test.js`: finding credentials on disk, one record per value,
+  every place kept, public keys and examples skipped, exposure, never
+  overwriting a record.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

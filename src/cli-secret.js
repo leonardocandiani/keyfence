@@ -106,6 +106,7 @@ function describe(d) {
     `projects: ${p.projects.join(',') || 'any'}`,
     `fill_map: ${Object.entries(p.fill_map).map(([k, v]) => `${k}=${v}`).join(',') || '-'}`,
     `last_used: ${d.lastUsed || 'never'}`,
+    `found_in: ${(d.sources || []).join(', ') || '-'}`,
     'value: never shown',
   ].join('\n');
 }
