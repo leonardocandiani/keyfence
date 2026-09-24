@@ -22,7 +22,7 @@ fs.writeFileSync(cfgFile, JSON.stringify(BASE));
 
 const SID = `test-${process.pid}-${Date.now()}`;
 // The vault is isolated too: a test must never write to the real one or the Keychain.
-const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key') };
+const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key'), KEYFENCE_REGISTRY: path.join(tmp, 'registry.json') };
 const gen = (id) => positives.find((p) => p[0] === id)[1]();
 
 function run(payload) {

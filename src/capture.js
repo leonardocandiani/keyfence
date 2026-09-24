@@ -157,6 +157,20 @@ function targetFile(cwd, cfg) {
   return { file: expand(cfg.capture.globalFile), project: false };
 }
 
+// Every env file keyfence writes to, so maintenance knows where to look.
+const registryFile = () => process.env.KEYFENCE_REGISTRY || path.join(os.homedir(), '.config', 'keyfence', 'registry.json');
+function registered() {
+  try { return JSON.parse(fs.readFileSync(registryFile(), 'utf8')).files || []; } catch { return []; }
+}
+function remember(file) {
+  const files = registered();
+  if (files.includes(file)) return;
+  try {
+    fs.mkdirSync(path.dirname(registryFile()), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(registryFile(), JSON.stringify({ files: [...files, file] }, null, 2), { mode: 0o600 });
+  } catch { /* best effort */ }
+}
+
 function parseEnv(src) {
   const out = new Map();
   for (const line of src.split('\n')) {
@@ -197,6 +211,7 @@ function save(items, prompt, cwd, cfg) {
     saved.push({ name, rule: it.rule, value: it.value, reused: false });
   }
   if (append) {
+    remember(file);
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const sep = src && !src.endsWith('\n') ? '\n' : '';
     fs.appendFileSync(file, sep + append, { mode: 0o600 });
@@ -204,4 +219,4 @@ function save(items, prompt, cwd, cfg) {
   return { file, project, saved };
 }
 
-module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, NAMES, CUE_LABEL };
+module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, registered, remember, NAMES, CUE_LABEL };

@@ -42,6 +42,8 @@ const COMMANDS = {
   install: { flags: ['--dry-run', '--settings'], usage: 'keyfence install [--dry-run] [--settings <path>]' },
   uninstall: { flags: ['--dry-run', '--settings'], usage: 'keyfence uninstall [--dry-run] [--settings <path>]' },
   config: { flags: [], usage: 'keyfence config' },
+  maintain: { flags: ['--apply', '--install', '--uninstall'], usage: 'keyfence maintain [--apply] [--install|--uninstall]  (tidy, merge duplicates, list what to rotate; --install runs it daily)' },
+  tidy: { flags: ['--apply'], usage: 'keyfence tidy [env-file...] [--apply]  (without --apply: show the plan only)' },
   secret: { flags: [], usage: 'keyfence secret add|rotate|list|show|policy|revoke|reactivate|rm (values only at a hidden terminal prompt)' },
 };
 const VALUE_FLAGS = new Set(['--settings']);
@@ -245,6 +247,58 @@ function cmdUninstall(flags) {
   process.stdout.write(`uninstall: ${flags['dry-run'] ? 'would remove' : 'removed'} ${removed} hook entr${removed === 1 ? 'y' : 'ies'} from ${tilde(file)}\n`);
 }
 
+async function cmdMaintain(flags) {
+  const m = require('./maintain');
+  if (flags.install) { const r = m.install(); return process.stdout.write(`maintain: scheduled ${r.schedule}\nplist: ${tilde(r.plist)}\nlog: ${tilde(r.log)}\n`); }
+  if (flags.uninstall) return process.stdout.write(m.uninstall() ? 'maintain: schedule removed\n' : 'maintain: no schedule installed (no-op)\n');
+  const r = await m.maintain({ apply: Boolean(flags.apply) });
+  const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
+  const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
+  out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
+  out.push(r.merged.length ? table('merged', ['kept', 'removed'], r.merged) : 'merged: 0 duplicates');
+  if (r.unclear.length) out.push(`same_value_unclear[${r.unclear.length}]:\n${r.unclear.map((u) => `  ${u}`).join('\n')}`);
+  out.push(`rotate_soon[${r.exposed.length}]: ${r.exposed.join(', ') || 'none'} (went through a chat)`);
+  out.push(`unused_90_days[${r.stale.length}]: ${r.stale.join(', ') || 'none'}`);
+  if (!flags.apply) out.push(help(['Run `keyfence maintain --apply` to make the changes', 'Run `keyfence maintain --install` to run it daily']));
+  process.stdout.write(`${out.join('\n')}\n`);
+}
+
+// The project's .env and the private global file, when they exist.
+function defaultEnvFiles() {
+  let root = process.cwd();
+  try { root = require('child_process').execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* not a repo */ }
+  return [path.join(root, '.env'), path.join(HOME, '.config', 'keyfence', 'secrets.env')].filter((f) => fs.existsSync(f));
+}
+
+function tidyNotes(r) {
+  const notes = [];
+  if (r.unmatched.length) notes.push(`${tilde(r.file)}: ${r.unmatched.join(', ')} not found as a credential in any recent message; left as is`);
+  if (r.backup) notes.push(`${tilde(r.file)}: backup at ${tilde(r.backup)}`);
+  return notes;
+}
+
+async function cmdTidy(flags, args) {
+  const { tidyFile } = require('./tidy');
+  const files = args.length ? args.map((f) => path.resolve(f)) : defaultEnvFiles();
+  if (!files.length) return process.stdout.write('tidy: no env file here\nhelp[1]:\n  Run `keyfence tidy <path/to/.env>`\n');
+  const verb = flags.apply ? '' : 'would be ';
+  const rows = [];
+  const notes = [];
+  for (const f of files) {
+    const r = await tidyFile(f, { apply: Boolean(flags.apply) });
+    for (const c of r.changes) rows.push({ file: tilde(f), old: c.old, record: c.alias, new: c.names.join(' '), action: verb + c.action });
+    notes.push(...tidyNotes(r));
+  }
+  process.stdout.write(renderTidy(rows, notes, Boolean(flags.apply)));
+}
+
+function renderTidy(rows, notes, applied) {
+  const out = [rows.length ? table('changes', ['file', 'old', 'record', 'new', 'action'], rows) : 'changes: 0 generic names to fix'];
+  if (notes.length) out.push(`notes[${notes.length}]:\n${notes.map((n) => `  ${n}`).join('\n')}`);
+  if (!applied && rows.length) out.push(help(['Run `keyfence tidy --apply` (same arguments) to make these changes']));
+  return `${out.join('\n')}\n`;
+}
+
 function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   if (!cmd) return cmdHome();
@@ -257,7 +311,8 @@ function main(argv = process.argv.slice(2)) {
   if (parsed.error) return fail(parsed.error, parsed.hint);
   if (parsed.flags.help) return process.stdout.write(`usage: ${COMMANDS[cmd].usage}\n`);
   try {
-    ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig })[cmd](parsed.flags, parsed.args);
+    const res = ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig, tidy: cmdTidy, maintain: cmdMaintain })[cmd](parsed.flags, parsed.args);
+    if (res && res.catch) res.catch((e) => fail(e.message, null, 1));
   } catch (e) {
     fail(e.message, null, 1);
   }

@@ -22,7 +22,7 @@ fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n');
 const keyFile = path.join(tmp, 'api-key');
 fs.writeFileSync(keyFile, 'test-key');
 const cfgFile = path.join(tmp, 'config.json');
-const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, TYPESAFE_API_KEY: '', KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key') };
+const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, TYPESAFE_API_KEY: '', KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vault-key'), KEYFENCE_REGISTRY: path.join(tmp, 'registry.json') };
 
 const cases = [];
 const check = (name, got, want) => cases.push({ name, got, want, ok: got === want });

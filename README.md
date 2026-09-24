@@ -28,7 +28,7 @@
     <a href="#configuration">Configuration</a> •
     <a href="#the-optional-classifier">The optional classifier</a> •
     <a href="#the-vault">The vault</a> •
-    <a href="#scanning-files">Scanning files</a> •
+    <a href="#keeping-it-organized">Keeping it organized</a> •
     <a href="#license">License</a>
   </p>
 </div>
@@ -321,6 +321,30 @@ This is phase 1 of [the vault design](docs/design/vault.md). The operations that
 use a secret without revealing it (`request`, `run`, `fill`) come next; until
 then the vault stores, protects and describes.
 
+## Keeping it organized
+
+Credentials pile up. keyfence keeps them in order on its own:
+
+```
+keyfence tidy              # plan: which generic names (PASSWORD, SENHA, SECRET_2...) get real ones
+keyfence tidy --apply      # do it, with a 0600 backup of the env file
+keyfence maintain          # plan for every env file keyfence ever wrote to
+keyfence maintain --install  # run `maintain --apply` every day at 09:30 (launchd, headless)
+```
+
+- **Old generic names get real ones.** A value saved long ago as `PASSWORD` is
+  looked up in the message it came from (in the Claude Code session logs, inside
+  keyfence, never printed), and the credential is rebuilt: `PASSWORD` becomes
+  `SIS_ROBSON_PASSWORD`, and the login that was dropped back then comes back as
+  `SIS_ROBSON_LOGIN`. A value that today's detection does not see as a
+  credential (an old false capture) is left alone.
+- **Nothing that reads a name breaks.** If any tracked file of the project reads
+  the old name, it stays and the new names are added next to it.
+- **Duplicates merge.** The same value under `sis/default` and `sis/robson` keeps
+  the specific record; any other duplicate is only reported.
+- **What needs you is listed.** Secrets that went through a chat (rotate them)
+  and secrets unused for 90 days.
+
 ## Scanning files
 
 The detection engine is also a CLI:
@@ -383,6 +407,8 @@ npm test
   values and guarding the vault.
 - `test/credential.test.js`: credential records: service, account, which value
   is the login, names, environment, two services in one message.
+- `test/tidy.test.js`: renaming from the original message, recovered logins,
+  names code still reads, backups, duplicate merging and the rotation list.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

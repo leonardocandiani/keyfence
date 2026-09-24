@@ -255,6 +255,20 @@ async function use(alias, op) {
   }
 }
 
+// Groups of aliases that hold the same value (current versions only).
+function duplicates() {
+  const byPrint = new Map();
+  for (const [alias, s] of Object.entries(load().secrets)) {
+    for (const fp of Object.values(s.fingerprints || {})) {
+      if (!byPrint.has(fp)) byPrint.set(fp, new Set());
+      byPrint.get(fp).add(alias);
+    }
+  }
+  const seen = new Set();
+  return [...byPrint.values()].filter((g) => g.size > 1).map((g) => [...g].sort())
+    .filter((g) => { const k = g.join(','); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
 function fingerprints() {
   try {
     return JSON.parse(fs.readFileSync(fingerprintFile(), 'utf8'));
@@ -263,4 +277,4 @@ function fingerprints() {
   }
 }
 
-module.exports = { add, upsert, rotate, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
+module.exports = { add, upsert, rotate, duplicates, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
