@@ -100,7 +100,7 @@ account, and which value is the login, the password, the token or the URL.
 
 ```
 you:  login=robson.silva@empresa.com.br
-      senha=robson2024
+      senha=********
       (in the SIS-api project)
 
 keyfence: vault record  sis/robson  (login, password)
