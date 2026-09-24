@@ -49,14 +49,19 @@ function isCredential(name, value) {
   return SECRET_NAME.test(name) && looksSecret(value, name.toLowerCase());
 }
 
-function serviceOf(name, file) {
-  if (BY_SDK_NAME.has(name)) return BY_SDK_NAME.get(name);
-  const m = /^([A-Z0-9]+(?:_[A-Z0-9]+)*?)_(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|PASSWORD|SECRET_KEY|SECRET|KEY|DSN|WEBHOOK_URL)$/.exec(name);
-  return m ? slug(m[1]) : projectName(path.dirname(file)) || 'misc';
+// SUPABASE_SERVICE_ROLE_KEY -> service supabase, field service_role_key.
+// A generic name (API_KEY, SECRET_KEY) belongs to the project it sits in.
+const GENERIC_PREFIX = /^(?:API|APP|SECRET|AUTH|JWT|SESSION|ACCESS|PRIVATE|CLIENT|MASTER|ENCRYPTION|SIGNING|DB|DATABASE|WEBHOOK|ADMIN)$/;
+function nameParts(name, file) {
+  if (BY_SDK_NAME.has(name)) {
+    const svc = BY_SDK_NAME.get(name);
+    return { service: svc, field: name.toLowerCase().replace(new RegExp(`^${svc.replace(/-/g, '_')}_`), '') || 'value' };
+  }
+  const [head, ...rest] = name.split('_');
+  if (!rest.length || GENERIC_PREFIX.test(head)) return { service: projectName(path.dirname(file)) || 'misc', field: name.toLowerCase() };
+  return { service: slug(head), field: rest.join('_').toLowerCase() };
 }
 
-const roleOf = (name) => (/PASS|PWD/.test(name) ? 'password' : /TOKEN/.test(name) ? 'token' : /URL|DSN/.test(name) ? 'url'
-  : /SECRET|PRIVATE/.test(name) ? 'secret' : 'api_key');
 const envOf = (file) => (/\.env\.(?:prod|production)$/.test(file) ? 'prod' : /\.env\.(?:test|staging|homolog)/.test(file) ? 'test' : 'dev');
 
 // Every credential found, grouped: one value = one record; one service with
@@ -87,37 +92,55 @@ function knownAliases() {
 }
 
 function attachKnown(records, k, x) {
-  const rec = records.find((r) => r.alias === k.alias && r.value === x.value);
-  if (rec) rec.places.push(x);
-  else records.push({ alias: k.alias, role: k.role, value: x.value, environment: envOf(x.file), places: [x] });
+  const rec = records.find((r) => r.alias === k.alias);
+  if (rec) { rec.fields[k.role] = x.value; rec.places.push(x); return; }
+  records.push({ alias: k.alias, fields: { [k.role]: x.value }, environment: envOf(x.file), places: [x] });
 }
 
+// One record per service and project, with every field found there; the same
+// record (same fields, same values) in several projects is one record with all
+// its places. Values the vault already holds attach to their record.
 function group(found) {
   const known = knownAliases();
-  const byService = new Map();
   const records = [];
+  const buckets = new Map();
   for (const x of found) {
     const k = known(x.value);
     if (k) { attachKnown(records, k, x); continue; }
-    const svc = serviceOf(x.name, x.file);
-    if (!byService.has(svc)) byService.set(svc, new Map());
-    const byValue = byService.get(svc);
-    if (!byValue.has(x.value)) byValue.set(x.value, []);
-    byValue.get(x.value).push(x);
+    const { service, field } = nameParts(x.name, x.file);
+    const key = `${service}|${projectName(path.dirname(x.file))}|${envOf(x.file)}`;
+    if (!buckets.has(key)) buckets.set(key, { service, project: projectName(path.dirname(x.file)), environment: envOf(x.file), fields: {}, places: [] });
+    const b = buckets.get(key);
+    b.fields[b.fields[field] !== undefined && b.fields[field] !== x.value ? `${field}_2` : field] = x.value;
+    b.places.push(x);
   }
-  // An alias the vault already uses for another value is taken: discover only
-  // creates records or adds places, it never overwrites a credential.
+  return records.concat(nameRecords(mergeSame([...buckets.values()])));
+}
+
+// Buckets with the same service, fields and values are one credential.
+function mergeSame(buckets) {
+  const bySig = new Map();
+  for (const b of buckets) {
+    const sig = `${b.service}|${JSON.stringify(Object.entries(b.fields).sort())}`;
+    if (bySig.has(sig)) bySig.get(sig).places.push(...b.places); else bySig.set(sig, { ...b, places: [...b.places] });
+  }
+  return [...bySig.values()];
+}
+
+// service/default when a service has one credential; otherwise service/project.
+// An alias the vault already uses for another value is taken: discover only
+// creates records or adds places, it never overwrites a credential.
+function nameRecords(recs) {
   const taken = new Set(require('./vault').list().map((x) => x.alias));
-  for (const [svc, byValue] of byService) {
-    const used = new Set([...taken].filter((a) => a.startsWith(`${svc}/`)).map((a) => a.slice(svc.length + 1)));
-    for (const [value, places] of byValue) {
-      let account = byValue.size === 1 ? 'default' : projectName(path.dirname(places[0].file)) || 'default';
-      for (let n = 2; used.has(account); n++) account = `${account.replace(/-\d+$/, '')}-${n}`;
-      used.add(account);
-      records.push({ alias: `${svc}/${account}`, role: roleOf(places[0].name), value, environment: envOf(places[0].file), places });
-    }
-  }
-  return records;
+  const perService = new Map();
+  for (const r of recs) perService.set(r.service, (perService.get(r.service) || 0) + 1);
+  return recs.map((r) => {
+    const projects = new Set(r.places.map((p) => projectName(path.dirname(p.file))));
+    let account = perService.get(r.service) === 1 ? 'default' : projects.size > 1 ? 'shared' : r.project || 'default';
+    for (let n = 2; taken.has(`${r.service}/${account}`); n++) account = `${account.replace(/-\d+$/, '')}-${n}`;
+    taken.add(`${r.service}/${account}`);
+    return { alias: `${r.service}/${account}`, fields: r.fields, environment: r.environment, places: r.places };
+  });
 }
 
 // Values that appear in recent Claude Code session logs went through a chat.
@@ -148,28 +171,30 @@ function registerPlaces(r, remember) {
   const names = readRegistry().names;
   for (const p of r.places) {
     if (RC_FILES.includes(path.basename(p.file)) || (names[p.file] && names[p.file][p.name])) continue;
-    remember(p.file, { [p.name]: { alias: r.alias, role: r.role, environment: r.environment } });
+    const field = Object.keys(r.fields).find((f) => r.fields[f] === p.value);
+    remember(p.file, { [p.name]: { alias: r.alias, role: field, environment: r.environment } });
   }
 }
 
 /**
  * Find credentials under `roots` and, with apply, register them.
- * @returns {{records: {alias, role, places: string[], exposed, action}[], files: number}}
+ * @returns {{records: {alias, fields: string[], places: string[], exposed, action}[], files: number}}
  */
 async function discover({ roots, depth = 5, apply = false, home = os.homedir() }) {
   const recs = inventory(roots, depth, home);
-  const exposed = exposedValues(recs.map((r) => r.value));
+  const exposed = exposedValues(recs.flatMap((r) => Object.values(r.fields)));
   const vault = require('./vault');
   const { remember } = require('./capture');
   const out = [];
   for (const r of recs) {
     const sources = r.places.map((p) => `${tildeOf(p.file)}:${p.name}`);
+    const wasExposed = Object.values(r.fields).some((v) => exposed.has(v));
     let action = vault.show(r.alias) ? 'known' : 'new';
     if (apply) {
-      try { action = (await vault.upsert(r.alias, { [r.role]: r.value }, { environment: r.environment, exposed: exposed.has(r.value), sources })).action; } catch (e) { action = `vault unavailable (${e.message.slice(0, 30)})`; }
+      try { action = (await vault.upsert(r.alias, r.fields, { environment: r.environment, exposed: wasExposed, sources })).action; } catch (e) { action = `vault unavailable (${e.message.slice(0, 30)})`; }
       registerPlaces(r, remember);
     }
-    out.push({ alias: r.alias, role: r.role, places: sources, exposed: exposed.has(r.value), action });
+    out.push({ alias: r.alias, fields: Object.keys(r.fields), places: sources, exposed: wasExposed, action });
   }
   return { records: out, files: new Set(recs.flatMap((r) => r.places.map((p) => p.file))).size };
 }

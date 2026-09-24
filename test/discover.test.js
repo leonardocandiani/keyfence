@@ -34,6 +34,7 @@ const project = (name, files) => {
   const dbPw = `Db9${r(10)}!`;
   project('crm-api', { '.env': `OPENAI_API_KEY=${openai}\nSTRIPE_SECRET_KEY=${stripeA}\nDB_PASSWORD=${dbPw}\nNEXT_PUBLIC_SITE=https://x.io\nPORT=3000\n`, '.env.example': 'OPENAI_API_KEY=sk-your-key\n' });
   project('site', { '.env.local': `OPENAI_API_KEY=${openai}\nSTRIPE_SECRET_KEY=${stripeB}\n` });
+  project('zap', { '.env': `UAZAPI_TOKEN=${r(30)}\nUAZAPI_ADMIN_TOKEN=${r(30)}\n` });
   fs.mkdirSync(path.join(home, 'code', 'crm-api', 'node_modules', 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(home, 'code', 'crm-api', 'node_modules', 'pkg', '.env'), `OPENAI_API_KEY=${gen('openai')}\n`);
   fs.writeFileSync(path.join(home, '.zshrc'), `export PATH=/usr/bin\nexport GITHUB_TOKEN=${gen('github')}\n`);
@@ -44,8 +45,9 @@ const project = (name, files) => {
   const by = Object.fromEntries(dry.records.map((x) => [x.alias, x]));
   check('the same key in two projects is one record', by['openai/default'] && by['openai/default'].places.length, 2);
   check('two different keys of one service get one record per project', ['stripe/crm', 'stripe/site'].every((a) => by[a]), true);
-  check('a password found by its variable name', Boolean(by['db/default']), true);
+  check('a generic name belongs to its project: DB_PASSWORD -> crm/default', by['crm/default'] && by['crm/default'].fields.join(','), 'db_password');
   check('shell rc exports are found', Boolean(by['github/default']), true);
+  check('two keys of one service in one project are one record with two fields', by['uazapi/default'] && by['uazapi/default'].fields.sort().join(','), 'admin_token,token');
   check('public keys, ports and examples are left out', dry.records.some((x) => x.places.some((p) => /NEXT_PUBLIC|PORT|example/.test(p))), false);
   check('node_modules is not searched', dry.records.some((x) => x.places.some((p) => p.includes('node_modules'))), false);
   check('a key seen in a past session is marked exposed', by['stripe/crm'] && by['stripe/crm'].exposed, true);
@@ -65,9 +67,9 @@ const project = (name, files) => {
   project('crm-web', { '.env': `DB_PASSWORD=${other}\n` });
   await discover({ roots: [path.join(home, 'code')], home, apply: true });
   let dbHeld = '';
-  await vault.use('db/default', (f) => { dbHeld = f.password.toString(); });
+  await vault.use('crm/default', (f) => { dbHeld = f.db_password.toString(); });
   check('a taken alias is never overwritten by another value', dbHeld, dbPw);
-  check('...the new value gets its own record', vault.list().some((x) => x.alias.startsWith('db/') && x.alias !== 'db/default'), true);
+  check('...the new value gets its own record', vault.list().some((x) => x.alias.startsWith('crm/') && x.alias !== 'crm/default'), true);
   check('isCredential ignores a template reference', isCredential('API_KEY', '${OTHER_KEY}'), false);
 
   const failed = cases.filter((c) => !c.ok);

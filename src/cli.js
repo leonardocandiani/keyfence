@@ -253,9 +253,9 @@ async function cmdDiscover(flags, args) {
   const cfg = config.load().discover;
   const roots = args.length ? args.map((a) => path.resolve(a)) : cfg.roots.map((x) => x.replace(/^~(?=\/|$)/, HOME)).filter((x) => fs.existsSync(x));
   const r = await discover({ roots, depth: Number(flags.depth) || cfg.depth, apply: Boolean(flags.apply) });
-  const rows = r.records.map((x) => ({ alias: x.alias, field: x.role, places: x.places.length, first: x.places[0], exposed: x.exposed ? 'yes' : 'no', action: x.action }));
+  const rows = r.records.map((x) => ({ alias: x.alias, fields: x.fields.join('+'), places: x.places.length, first: x.places[0], exposed: x.exposed ? 'yes' : 'no', action: x.action }));
   const out = [`discover: ${r.records.length} credential(s) in ${r.files} file(s) under ${roots.map(tilde).join(', ')}`];
-  if (rows.length) out.push(table('found', ['alias', 'field', 'places', 'first', 'exposed', 'action'], rows));
+  if (rows.length) out.push(table('found', ['alias', 'fields', 'places', 'first', 'exposed', 'action'], rows));
   const exposed = r.records.filter((x) => x.exposed).length;
   if (exposed) out.push(`rotate_soon: ${exposed} of them appear in past Claude Code sessions`);
   if (!flags.apply && rows.length) out.push(help(['Run `keyfence discover --apply` to register them in the vault (sources are not changed)', 'Run `keyfence secret show <alias>` to see where one lives']));
