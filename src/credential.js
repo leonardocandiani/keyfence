@@ -48,6 +48,8 @@ function accountOf(login) {
   return head.length >= 3 ? head : '';
 }
 
+const roleOfName = (n) => (/PASSWORD$/.test(n) ? 'password' : /TOKEN$/.test(n) ? 'token' : /PIN$/.test(n) ? 'pin' : /SECRET/.test(n) ? 'secret' : 'api_key');
+
 function providerOf(rule) {
   const sdk = cap.NAMES[rule];
   if (!sdk) return null;
@@ -73,7 +75,18 @@ function placeSubject(subject, known) {
   return { service: subject };
 }
 
+// FIPE_API_KEY names its service: fipe. PAINEL_PASSWORD: painel.
+function serviceInName(envName) {
+  const m = /^([A-Z0-9]+(?:_[A-Z0-9]+)*?)_(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|PASSWORD|SECRET_KEY|SECRET|KEY|PIN)$/.exec(envName || '');
+  return m ? slug(m[1]) : '';
+}
+
 function describeItem(item, text, cwd, known) {
+  const own = explicitName(item, text);
+  if (own && serviceInName(own) && !providerOf(item.rule)) {
+    const { kind } = cap.kindOf(item, text);
+    return { service: serviceInName(own), role: ROLE[kind] || roleOfName(own), envName: own };
+  }
   const provider = providerOf(item.rule);
   if (provider) return { service: provider.service, role: provider.role, envName: explicitName(item, text) || provider.sdk };
   if (item.rule === 'url-param') {

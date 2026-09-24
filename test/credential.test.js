@@ -39,6 +39,10 @@ check('key in a link: named after the host', names(url[0]), 'api_key=PLACAFIPE_A
 
 const own = recs(`PAINEL_PASSWORD=Kq9${r(6)}!`, callRepo);
 check('a name the user wrote is kept', names(own[0]), 'password=PAINEL_PASSWORD');
+check('a name the user wrote also names the service', own[0] && own[0].alias, 'painel/default');
+const fipe = recs(`fipe-api-key=${r(32, '0123456789abcdef')}`, sisRepo);
+check('fipe-api-key= files under fipe, not under the project', fipe[0] && fipe[0].alias, 'fipe/default');
+check('...and keeps its name', names(fipe[0]), 'api_key=FIPE_API_KEY');
 
 const meta = recs(`segue o token da meta: ${gen('meta')}`, sisRepo);
 check('a provider token keeps its SDK name', names(meta[0]), 'token=META_ACCESS_TOKEN');
