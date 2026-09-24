@@ -263,6 +263,7 @@ async function captureText(ctx, keep, logins = []) {
     for (const rec of build(prompt, keep, d.cwd, logins, known)) {
       const items = Object.entries(rec.fields).map(([role, value]) => ({ value, rule: role, envName: rec.envNames[role] }));
       const r = save(items, prompt, d.cwd, cfg);
+      require('./capture').remember(r.file, Object.fromEntries(r.saved.map((x) => [x.name, { alias: rec.alias, role: x.rule, environment: rec.environment }])));
       mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
       const stored = await storeInVault(rec, cfg);
       const names = r.saved.map((x) => `${x.rule} $${x.name}${x.reused ? ' (already saved)' : ''}`).join(', ');

@@ -255,6 +255,8 @@ async function cmdMaintain(flags) {
   const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
   const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
   out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
+  const moved = r.synced.filter((x) => x.action !== 'unchanged' && x.action !== 'checked');
+  out.push(moved.length ? table('vault', ['alias', 'action'], moved) : `vault: ${r.synced.length} credential(s) in step with their env files`);
   out.push(r.merged.length ? table('merged', ['kept', 'removed'], r.merged) : 'merged: 0 duplicates');
   if (r.unclear.length) out.push(`same_value_unclear[${r.unclear.length}]:\n${r.unclear.map((u) => `  ${u}`).join('\n')}`);
   out.push(`rotate_soon[${r.exposed.length}]: ${r.exposed.join(', ') || 'none'} (went through a chat)`);

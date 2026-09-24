@@ -159,15 +159,24 @@ function targetFile(cwd, cfg) {
 
 // Every env file keyfence writes to, so maintenance knows where to look.
 const registryFile = () => process.env.KEYFENCE_REGISTRY || path.join(os.homedir(), '.config', 'keyfence', 'registry.json');
-function registered() {
-  try { return JSON.parse(fs.readFileSync(registryFile(), 'utf8')).files || []; } catch { return []; }
+// It also maps each variable to its credential (SIS_ROBSON_PASSWORD -> sis/robson,
+// password), so the vault can be brought up to date from the files later.
+function readRegistry() {
+  try {
+    const r = JSON.parse(fs.readFileSync(registryFile(), 'utf8'));
+    return { files: r.files || [], names: r.names || {} };
+  } catch {
+    return { files: [], names: {} };
+  }
 }
-function remember(file) {
-  const files = registered();
-  if (files.includes(file)) return;
+const registered = () => readRegistry().files;
+function remember(file, names = {}) {
+  const r = readRegistry();
+  if (!r.files.includes(file)) r.files.push(file);
+  r.names[file] = { ...(r.names[file] || {}), ...names };
   try {
     fs.mkdirSync(path.dirname(registryFile()), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(registryFile(), JSON.stringify({ files: [...files, file] }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(registryFile(), JSON.stringify(r, null, 2), { mode: 0o600 });
   } catch { /* best effort */ }
 }
 
@@ -219,4 +228,4 @@ function save(items, prompt, cwd, cfg) {
   return { file, project, saved };
 }
 
-module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, registered, remember, NAMES, CUE_LABEL };
+module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, registered, readRegistry, remember, NAMES, CUE_LABEL };

@@ -84,6 +84,13 @@ function log(cwd, text) {
   check('the leftover is gone from the vault', vault.show('sis/default'), null);
   check('what went through a chat is listed for rotation', m.exposed.includes('sis/robson'), true);
 
+  // the vault catches up with the env files on its own
+  vault.remove('sis/robson');
+  const caught = await maintain({ apply: true });
+  check('maintain re-adds a record missing from the vault', caught.synced.some((x) => x.alias === 'sis/robson' && x.action === 'added'), true);
+  check('...with the login and the password', (vault.show('sis/robson') || { fields: [] }).fields.sort().join(','), 'login,password');
+  check('a second run finds everything in step', (await maintain({ apply: true })).synced.every((x) => x.action === 'unchanged'), true);
+
   const failed = cases.filter((c) => !c.ok);
   for (const c of failed) console.log(`  FAIL ${c.name}: got ${c.got}, want ${c.want}`);
   console.log(`tidy: ${cases.length - failed.length}/${cases.length} ok`);

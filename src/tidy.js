@@ -129,12 +129,15 @@ async function applyPlan(p) {
   return backup;
 }
 
+const nameMap = (p) => Object.fromEntries([...p.records.values()].flatMap((rec) =>
+  Object.keys(rec.fields).map((role) => [rec.envNames[role], { alias: rec.alias, role, environment: rec.environment }])));
+
 /** Plan the renames for an env file; with apply, perform them. Never returns a value. */
 async function tidyFile(file, { apply = false } = {}) {
   const p = plan(file);
   const backup = apply ? await applyPlan(p) : null;
-  if (apply) require('./capture').remember(file); // tidied once, maintained from then on
+  if (apply) require('./capture').remember(file, nameMap(p)); // tidied once, maintained from then on
   return { file, changes: p.changes, unmatched: p.unmatched, backup };
 }
 
-module.exports = { tidyFile, GENERIC };
+module.exports = { tidyFile, plan, nameMap, GENERIC };
