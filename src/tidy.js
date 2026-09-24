@@ -71,10 +71,20 @@ function recordFor(value, msg, fallbackCwd) {
   return build(msg.text, scan(msg.text).findings, msg.cwd || fallbackCwd).find((r) => Object.values(r.fields).includes(value)) || null;
 }
 
-// Does any tracked file of the project read this variable?
+// Does code in the project read this variable? Only real environment access
+// counts (process.env.NAME, os.environ['NAME'], getenv("NAME"), ${NAME}...):
+// the word in a doc, a comment or a string is not a reader.
+function envAccess(name) {
+  // POSIX ERE (git grep -E): no \\b, so the word end is spelled out.
+  const end = '([^A-Za-z0-9_]|$)';
+  const q = `['"]${name}['"]`;
+  return [`process\\.env\\.${name}${end}`, `process\\.env\\[${q}\\]`, `os\\.environ(\\.get)?[[(]${q}`, `getenv\\(${q}`,
+    `ENV\\[${q}\\]`, `(^|[^A-Za-z0-9_])env\\(${q}`, `import\\.meta\\.env\\.${name}${end}`, `Deno\\.env\\.get\\(${q}`, `\\$\\{?${name}${end}`].join('|');
+}
+
 function referenced(name, root) {
   try {
-    execFileSync('git', ['grep', '-q', '-w', name, '--', ':!*.env', ':!.env*'], { cwd: root, stdio: 'ignore', timeout: 5000 });
+    execFileSync('git', ['grep', '-q', '-E', envAccess(name), '--', ':!*.env', ':!.env*', ':!*.md', ':!docs/**'], { cwd: root, stdio: 'ignore', timeout: 5000 });
     return true;
   } catch (e) {
     return e.status !== 1; // 1 = no match; not a repo or an error: be careful, treat as used

@@ -63,6 +63,19 @@ function log(cwd, text) {
   check('a name the code reads is kept', /^PASSWORD=/m.test(usedAfter), true);
   check('...and the good names are added next to it', usedAfter.includes(`PAINEL_LEO_PASSWORD=${pw2}`), true);
 
+  // the word in a doc is not a reader
+  const doc = repo('docs-only-api');
+  const pw3 = `Zq7x${digits(5)}`;
+  log(doc, `login=ana@docs.com senha=${pw3}`);
+  fs.mkdirSync(path.join(doc, 'docs'));
+  fs.writeFileSync(path.join(doc, 'docs', 'setup.md'), 'Set PASSWORD in your environment.\n');
+  fs.writeFileSync(path.join(doc, 'notes.js'), "const label = 'PASSWORD'; // a string, not an env read\n");
+  execFileSync('git', ['add', '.'], { cwd: doc });
+  const docEnv = path.join(doc, '.env');
+  fs.writeFileSync(docEnv, `PASSWORD=${pw3}\n`);
+  await tidyFile(docEnv, { apply: true });
+  check('a mention in docs or a string does not keep the old name', /^PASSWORD=/m.test(fs.readFileSync(docEnv, 'utf8')), false);
+
   // maintain: registered files, duplicates, rotation list
   remember(envFile);
   vault.add('sis/default', { password: Buffer.from(pw) });
