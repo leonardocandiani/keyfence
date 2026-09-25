@@ -25,10 +25,16 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { scan, shape } = require('./detect');
 const config = require('./config');
+const { WIN, slash, renameRetry } = require('./fsmode');
 
 const MAX_SCAN = 2 * 1024 * 1024;
 const NETWORK = /\b(curl|wget|http|https|xh|nc|ncat|socat|telnet|ftp|sftp|scp|rsync|ssh|gh\s|git\s+(?:commit|push|tag|notes|send-email)|aws\s|az\s|gcloud\s|doctl\s|vercel\s|flyctl\s|nc\s)\b|\b(node|bun|deno|python3?|ruby|php|perl)\b[^|;&]*\b(fetch|requests?|urllib|httpx|aiohttp|axios|got|undici|http\.request|https\.request|net\/http|file_get_contents|XMLHttpRequest|LWP|socket)\b/i;
 const READER = /\b(cat|bat|less|more|head|tail|grep|egrep|fgrep|rg|ag|sed|awk|jq|yq|strings|xxd|hexdump|od|plutil|defaults\s+read|base64|nl|tac|python3?\s+-c|node\s+-e|ruby\s+-e|perl\s+-[en])\b/;
+// The same readers in PowerShell (the primary shell of Claude Code on Windows):
+// cmdlets, their aliases, .NET file reads and the Unix names PowerShell also runs.
+const PS_READER = /\b(Get-Content|gc|type|cat|Select-String|sls|Format-Hex|fhx|Import-Csv|ConvertFrom-StringData|ReadAllText|ReadAllLines|ReadAllBytes|findstr|more|head|tail|grep|rg|jq|python3?\s+-c|node\s+-e)\b/i;
+// Shell tools whose command line is judged for vault reads.
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 
 // Tools that stay on this machine. Anything else (WebFetch, WebSearch, MCP,
 // artifact publishing, tools added in future versions) is treated as leaving it.
@@ -55,7 +61,8 @@ const SAFE_READ = [
 const ASSIGN = /^\s*(?:export\s+|declare\s+(?:-\w+\s+)*|local\s+|readonly\s+|typeset\s+)?([A-Za-z_][A-Za-z0-9_]*)=/;
 // `>` and `>>` into a path (`>=` is a comparison, not a redirect), or tee.
 const REDIRECT = /(?:\d?>>?(?!=)|\btee\s+(?:-a\s+)?)\s*([^\s;|&<>'"`=][^\s;|&<>'"`]*)/g;
-const PATH_LIKE = /^(?:[~.]?\/|[\w.-]+(?:\/|\.\w+$))/;
+// Also Windows forms: `C:\dir\f`, `C:/dir/f`, `.\f`, `dir\f`.
+const PATH_LIKE = /^(?:[A-Za-z]:[\\/]|[~.]?[\\/]|[\w.-]+(?:[\\/]|\.\w+$))/;
 // Forms that hand a file's content to a network command: curl -d @f, < f, -T f.
 const SENDS_FILE = /(?:@|<\s*|-T\s+|--upload-file\s+)([^\s;|&<>'"`]+)/g;
 
@@ -100,7 +107,7 @@ function writeState(file, list) {
   try {
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(list), { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    renameRetry(tmp, file);
   } catch { /* best effort */ }
 }
 
@@ -214,8 +221,8 @@ const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function mentionsFile(text, p) {
   if (text.includes(p)) return true;
-  const base = p.split('/').pop();
-  return base.length >= 4 && new RegExp(`(^|[\\s@<'"=/])${reEscape(base)}(?=$|[\\s'"\`);|&])`).test(text);
+  const base = p.split(/[\\/]/).pop();
+  return base.length >= 4 && new RegExp(`(^|[\\s@<'"=/\\\\])${reEscape(base)}(?=$|[\\s'"\`);|&])`).test(text);
 }
 
 // A network command that uses a marked copy, or hands a vault file to the network.
@@ -387,16 +394,18 @@ function vaultTarget(tool, input, cfg) {
   const { vaultDir } = require('./vault');
   const dir = vaultDir();
   const keyFile = process.env.KEYFENCE_VAULT_KEY_FILE || '';
-  const hit = (p) => cfg._vault.some((re) => re.test(p)) || (p && (p.startsWith(dir) || (keyFile && p === keyFile)));
+  const under = (p, base) => base && slash(p).toLowerCase().startsWith(slash(base).toLowerCase());
+  const hit = (p) => cfg._vault.some((re) => re.test(p)) || (p && (WIN ? under(p, dir) || (keyFile && slash(p).toLowerCase() === slash(keyFile).toLowerCase()) : p.startsWith(dir) || (keyFile && p === keyFile)));
   if (tool === 'Bash' && VAULT_KEY.test(String(input.command || ''))) return 'the keyfence vault key';
   if (tool === 'Read' || tool === 'NotebookRead' || tool === 'Grep') {
     const p = String(input.file_path || input.notebook_path || input.path || '');
     return hit(p) ? p : null;
   }
-  if (tool !== 'Bash') return null;
+  if (!SHELL_TOOLS.has(tool)) return null;
+  const reader = tool === 'PowerShell' ? PS_READER : READER;
   // Judge each segment on its own: `grep -c K .env && cat .env` must still fail.
   for (const seg of stripHeredocs(String(input.command || '')).split(/\|\||&&|[|;&\n]/)) {
-    if (!READER.test(seg) || SAFE_READ.some((re) => re.test(seg))) continue;
+    if (!reader.test(seg) || SAFE_READ.some((re) => re.test(seg))) continue;
     for (const tok of seg.split(/[\s<>()'"`]+/)) if (tok && hit(tok)) return tok;
   }
   return null;

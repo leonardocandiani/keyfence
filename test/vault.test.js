@@ -33,7 +33,7 @@ const rejects = async (p) => { try { await p; return false; } catch { return tru
   check('the value is not on disk in clear', disk.includes(token), false);
   check('nor in base64', disk.includes(Buffer.from(token).toString('base64')), false);
   check('fingerprints hold no value', fs.readFileSync(path.join(process.env.KEYFENCE_VAULT_DIR, 'fingerprints.json'), 'utf8').includes(token), false);
-  check('vault file is private (0600)', (fs.statSync(path.join(process.env.KEYFENCE_VAULT_DIR, 'vault.json')).mode & 0o777).toString(8), '600');
+  check('vault file is private (0600, or owner-only ACL on Windows)', require('../src/fsmode').isPrivate(path.join(process.env.KEYFENCE_VAULT_DIR, 'vault.json')), true);
   check('list shows aliases, not values', JSON.stringify(vault.list()).includes(token), false);
 
   let seen = null;

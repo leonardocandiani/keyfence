@@ -46,7 +46,7 @@ function log(cwd, text) {
   check('the login lost at capture time is recovered', after.includes('SIS_ROBSON_LOGIN=robson.silva@empresa.com.br'), true);
   check('the generic name is gone', /^PASSWORD=/m.test(after), false);
   check('other lines are untouched', after.includes('APP_URL=https://x.io') && after.includes('PASSWORD_2=palavraqualquer'), true);
-  check('a 0600 backup is kept', Boolean(done.backup) && (fs.statSync(done.backup).mode & 0o777).toString(8), '600');
+  check('a private backup is kept (0600, or owner-only ACL on Windows)', Boolean(done.backup) && require('../src/fsmode').isPrivate(done.backup), true);
   check('the record is in the vault', (vault.show('sis/robson') || { fields: [] }).fields.sort().join(','), 'login,password');
   check('running again changes nothing', (await tidyFile(envFile, { apply: true })).changes.length, 0);
 

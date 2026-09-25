@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { makePrivate } = require('./fsmode');
 
 // Conventional variable names per provider rule, the ones SDKs read by default.
 const NAMES = Object.fromEntries(`
@@ -178,6 +179,7 @@ function remember(file, names = {}, drop = []) {
   try {
     fs.mkdirSync(path.dirname(registryFile()), { recursive: true, mode: 0o700 });
     fs.writeFileSync(registryFile(), JSON.stringify(r, null, 2), { mode: 0o600 });
+    makePrivate(registryFile());
   } catch { /* best effort */ }
 }
 
@@ -256,7 +258,9 @@ function save(items, prompt, cwd, cfg) {
     remember(file);
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const sep = src && !src.endsWith('\n') ? '\n' : '';
+    const isNew = !fs.existsSync(file);
     fs.appendFileSync(file, sep + append, { mode: 0o600 });
+    if (isNew) makePrivate(file);
   }
   return { file, project, saved };
 }

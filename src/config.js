@@ -95,7 +95,13 @@ function load() {
     user = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
   } catch { /* no user config: defaults */ }
   const cfg = merge(DEFAULTS, user);
-  cfg._vault = [...cfg.vault.patterns, ...cfg.vault.extraPatterns].map((p) => new RegExp(p));
+  // Patterns are written with slashes; a Windows path is matched in slash form,
+  // ignoring case like the file system does.
+  const { WIN, slash } = require('./fsmode');
+  cfg._vault = [...cfg.vault.patterns, ...cfg.vault.extraPatterns].map((p) => {
+    const re = new RegExp(p, WIN ? 'i' : '');
+    return { test: (s) => re.test(slash(s)) };
+  });
   cfg._allowTools = cfg.egress.allowTools.map((p) => new RegExp(p));
   return cfg;
 }

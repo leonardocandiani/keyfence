@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { makePrivate, renameRetry } = require('./fsmode');
 const { edgeOf } = require('./detect');
 const { slug, upper, structuralName } = require('./credential');
 
@@ -146,7 +147,8 @@ function renameInEnv(file, map, keep) {
   });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, lines.join('\n'), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  renameRetry(tmp, file);
+  makePrivate(file);
   return final;
 }
 
@@ -250,7 +252,8 @@ function dropLines(file, names) {
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => { const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(l); return !(m && names.has(m[1])); });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, lines.join('\n'), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  renameRetry(tmp, file);
+  makePrivate(file);
 }
 
 // --- credentials named by older versions ----------------------------------------------
