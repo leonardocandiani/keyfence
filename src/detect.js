@@ -12,10 +12,10 @@ const { rules } = require('./rules');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
-const LABEL = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)([^\s"'`,;()[\]{}<>]{8,})(\(?)/gi;
+const LABEL = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/gi;
 
 // Values that look like placeholders, references or code, never a real secret.
-const PLACEHOLDER = /^(?:[xX*.#-]{3,}$|<[^>]*>?$|⟨|\{\{.*\}\}$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$|\$\(|process\.env|os\.environ|env\(|getenv|import\.meta|secrets\.|vault:|op:\/\/|ssm:|arn:aws|(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)$|(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-])/i;
+const PLACEHOLDER = /^(?:[xX*.#-]{3,}$|<[\w\s.-]+>$|⟨|\{\{.*\}\}$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$|\$\(|process\.env|os\.environ|env\(|getenv|import\.meta|secrets\.|vault:|op:\/\/|ssm:|arn:aws|(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)$|(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-])/i;
 
 function entropy(s) {
   if (!s) return 0;
@@ -69,7 +69,27 @@ const HEXLIKE = /^(?:[0-9a-f]{16,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 // `labeled` is true when a label (api-key, token, senha...) or a URL parameter
 // already says the value is a credential: then a hex or UUID value is a key,
 // not a commit hash.
-function looksSecret(v, labeled = false) {
+const PASSWORD_LABEL = /senha|pass|pwd|contrase|\bpin\b/i;
+
+// A value that is wholly something other than a secret: a reference to one
+// ($VAR, config.db.pass, getPassword()), an identifier or a path.
+function isReference(v) {
+  return /^\$\{?[A-Z_][A-Z0-9_]*\}?$/i.test(v) // $VAR / ${VAR}
+    || /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(v) // member access
+    || /^[A-Za-z_$][\w$.]*\(.*\)[;,]?$/.test(v) // call
+    || /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+\/?$/.test(v) // lowercase path or alias: service/api
+    || /^[#.][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(v) // CSS selector: #sip-password, .login-field
+    || (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))); // snake_case, UPPER_SNAKE, kebab
+}
+
+// `message` is true for what a person typed: there `Senha: joao.silva99` is the
+// password, while in a file the same shape is code (`password: config.db`).
+function looksSecret(v, labeled = false, message = false) {
+  // A password label already says what the value is. Any character goes; only a
+  // value that is wholly something else (a reference, an example) is left out.
+  if (typeof labeled === 'string' && PASSWORD_LABEL.test(labeled)) {
+    return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v) && (message || !isReference(v));
+  }
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;
@@ -83,18 +103,11 @@ function looksSecret(v, labeled = false) {
   if (/^__[A-Za-z]+__|\.\.\.|…/.test(v)) return false; // __PLACEHOLDER__, truncated example
   if (/==(?!=*$)|[?]|&&|\|\|/.test(v)) return false; // code expression, not a value
   if (/^[a-z]+(?:[_-][a-z]+)+[_-]?\d{1,4}$/i.test(v)) return false; // name_v2, retry-count-3
-  if (/^\$\{?[A-Z_][A-Z0-9_]*\}?$/.test(v)) return false; // $VAR / ${VAR}
-  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(v)) return false; // member access
-  if (/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+\/?$/.test(v)) return false; // lowercase path or alias: service/api, wavoip/test-device/sip
-  if (/^[#.][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(v)) return false; // CSS selector: #sip-password, .login-field
-  if (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))) return false; // snake_case, UPPER_SNAKE, kebab
+  if (isReference(v) && !/\(/.test(v)) return false;
   const h = entropy(v);
   // Under a label a weak password is still a password (robson9999): lower floor.
   const floor = labeled ? 2.2 : v.length < 16 ? 2.8 : 3.0;
   if (/^[A-Za-z]+$/.test(v)) {
-    // Under a password label a word is the password ("senha: flamengo"); under
-    // token or key it is more likely a field name ("token": "Categoria").
-    if (typeof labeled === 'string' && /senha|pass|pwd|contrase|\bpin\b/i.test(labeled)) return v.length >= 6;
     // A word (word, Word, WORD) is not a secret; random letters switch case often.
     if (/^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(v)) return false;
     return caseSwitches(v) >= 3 && h >= floor;
@@ -134,35 +147,64 @@ function scanRules(text, lower) {
   return out;
 }
 
-// The label regex stops at quotes and separators so code stays readable to it,
-// but a password can contain them. When the token goes on past that point with
-// no space, take all of it (minus trailing punctuation and quotes); a closing
-// quote ends a quoted value. A second `=` means chained assignments, not one value.
-function fullValue(text, at, quote, raw) {
-  const rest = text.slice(at, at + 256);
-  if (quote) {
-    const close = rest.indexOf(quote);
-    return close >= raw.length ? rest.slice(0, close) : raw;
+// Where a value ends comes from the message's syntax, never from what the value
+// holds: a password can carry any printable character. A value alone at the end
+// of its line, after a label or on a line of its own, is taken exactly as written
+// (in code, `auth: isAuthenticatedUser,` ends in a terminator, so not there).
+// In running text, sentence punctuation glued to it and a bracket or quote it
+// does not open come off: "a senha é X, e o login..." or "(senha X)".
+const OPENER = { ')': '(', ']': '[', '}': '{', '>': '<' };
+const CLOSER = { '(': ')', '[': ']', '{': '}', '<': '>' };
+function edgeOf(before, tok, after, code = false) {
+  if (!code && !after.trim() && (!before.trim() || /[:=]\s*$/.test(before))) return tok;
+  let w = tok;
+  for (let prev = ''; prev !== w && w;) {
+    prev = w;
+    w = w.replace(/[.,;:?]+$/, '');
+    const first = w[0];
+    const last = w[w.length - 1];
+    if (w.length > 1 && (CLOSER[first] === last || (/["'`]/.test(first) && first === last))) w = w.slice(1, -1);
+    else if (OPENER[last] && !w.includes(OPENER[last])) w = w.slice(0, -1);
+    else if (CLOSER[first] && !w.includes(CLOSER[first])) w = w.slice(1);
+    else if (/["'`]/.test(last) && w.indexOf(last) === w.length - 1) w = w.slice(0, -1);
+    else if (/["'`]/.test(first) && w.lastIndexOf(first) === 0) w = w.slice(1);
   }
-  const tok = /^\S+/.exec(rest)[0].replace(/[,;.:)\]}>'"`]+$/, '');
-  return /=/.test(tok.slice(raw.length)) ? raw : tok;
+  return w;
 }
 
-function scanLabeled(text) {
+// A quote before the value opens it only when the same quote closes it on that
+// line (an escaped quote does not); otherwise the quote belongs to the value.
+function fullValue(text, at, quote, message) {
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1;
+  const lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);
+  const line = text.slice(at, lineEnd);
+  // It closes where the value ends: before a space, a separator or the line end.
+  if (quote) {
+    const close = new RegExp(`(?<!\\\\)\\${quote}(?=$|[\\s,;)}\\]])`).exec(line);
+    if (close) return { value: line.slice(0, close.index), start: at };
+  }
+  const from = quote ? at - 1 : at;
+  const tok = /^\S*/.exec(text.slice(from, lineEnd))[0];
+  const value = edgeOf(text.slice(lineStart, from), tok, text.slice(from + tok.length, lineEnd), !message);
+  return { value, start: from + tok.indexOf(value) };
+}
+
+function scanLabeled(text, message = false) {
   const out = [];
   LABEL.lastIndex = 0;
   let m;
   while ((m = LABEL.exec(text))) {
     const [, label, quote, raw, call] = m;
-    if (call) continue; // `token = getToken(` is code
-    if (PLACEHOLDER.test(raw)) continue;
-    const at = m.index + m[0].length - raw.length;
-    const value = fullValue(text, at, quote, raw).replace(/[.:]+$/, '');
+    const at = m.index + m[0].length - raw.length - call.length;
+    const { value, start } = fullValue(text, at, quote, message);
+    // `token = getToken(user, x)` is code; `Senha: ab9(Xy` alone on a line someone
+    // typed is not.
+    if (call && !quote && /^[A-Za-z_$][\w$.]*$/.test(raw) && (!message || text.slice(start + value.length).split('\n')[0].trim())) continue;
+    if (!value || PLACEHOLDER.test(value)) continue;
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
-    if (!looksSecret(value, label)) continue;
-    const start = at;
+    if (!looksSecret(value, label, message)) continue;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }
   return out;
@@ -229,7 +271,7 @@ function resolve(findings) {
 function scan(text, opts = {}) {
   if (!text || typeof text !== 'string') return { findings: [], ambiguous: [] };
   const lower = text.toLowerCase();
-  const findings = resolve([...scanRules(text, lower), ...scanLabeled(text), ...scanUrlParams(text)]);
+  const findings = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanUrlParams(text)]);
   const ambiguous = opts.ambiguous ? scanAmbiguous(text, findings) : [];
   return { findings, ambiguous };
 }
@@ -252,4 +294,4 @@ function redact(text, found) {
   return out + text.slice(i);
 }
 
-module.exports = { scan, shape, redact, entropy, looksSecret };
+module.exports = { scan, shape, redact, entropy, looksSecret, edgeOf };

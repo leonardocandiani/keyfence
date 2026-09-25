@@ -322,7 +322,7 @@ async function onPrompt(d, cfg) {
   // Background-task notifications arrive as prompts; they carry ids and paths, not secrets.
   if (/^\s*<task-notification>/.test(prompt)) return;
   const ttl = cfg.ttlHours * 3600e3;
-  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt });
+  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
   const items = [...findings, ...ambiguous];
   if (items.length) taint(d.session_id, items, 'prompt', ttl);
   if (cfg.promptMode === 'block' && items.length) {

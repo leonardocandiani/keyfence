@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const os = require('os');
-const { shape, entropy } = require('./detect');
+const { shape, entropy, edgeOf } = require('./detect');
 
 function apiKey(cfg) {
   if (process.env[cfg.jev.apiKeyEnv]) return process.env[cfg.jev.apiKeyEnv];
@@ -92,9 +92,12 @@ async function classify(text, cfg) {
 // credential goes to the classifier one word at a time, masked, so it answers
 // "which word" and not only "is there one". Emails are candidates here: an email
 // can be the password. Context decides, not the shape.
-const NOT_A_VALUE = (w) => w.startsWith('--') || /[:=]$/.test(w) || /^https?:\/\//.test(w)
-  || /^[~./]/.test(w) || /^v?\d+(?:\.\d+)+$/.test(w) || /^\d{1,7}$/.test(w)
-  || /\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(w)
+// Only what is wholly a label, a flag, a URL, a path, a version or a file name:
+// a password may start with `/` or end with `=` like base64. A path starts with
+// ~/ ./ ../ or has two segments; one lowercase segment is a URL path (/cpanel).
+const NOT_A_VALUE = (w) => /^--[a-z]/.test(w) || /^\p{L}[\p{L}_-]*[:=]$/u.test(w) || /^https?:\/\//.test(w)
+  || /^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(w) || /^\/[a-z0-9._-]+\/?$/.test(w) || /^v?\d+(?:\.\d+)+$/.test(w) || /^\d{1,7}$/.test(w)
+  || /^[\w./-]+\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(w)
   || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w);
 
 function mayBeSecret(w, cue = false) {
@@ -112,9 +115,11 @@ function candidatesOf(text, skip = [], max = 12) {
   const seen = new Set(skip);
   const out = [];
   const cue = CUE.test(text);
-  for (const raw of String(text).match(/[^\s"'`,;()[\]{}<>]+/g) || []) {
-    // Sentence punctuation ends a word; `!` often ends a password, so it stays.
-    const w = raw.replace(/[.,:;?]+$/, '');
+  // A candidate is the whole run between spaces, with the same edges the rules
+  // use: a password can carry any character, so none of them splits it.
+  const words = String(text).split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
+    .map((m) => edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length))));
+  for (const w of words) {
     if (seen.has(w) || !mayBeSecret(w, cue)) continue;
     seen.add(w);
     out.push(w);
