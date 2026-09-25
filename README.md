@@ -44,6 +44,7 @@
 
 ```yaml
 product:  Claude Code hook plus a local vault that keeps credentials in and organized
+platform: macOS, Linux and Windows (Bash and PowerShell)
 capture:  a credential pasted in any form becomes a record: service, account, login, password
 detects:  53 formats · labeled values · ?key= links · contextual classifier
 vault:    AES-256-GCM, master key in the macOS Keychain, no command that prints a value
@@ -337,8 +338,8 @@ keyfence secret revoke wavoip/test-device/sip
   with `value: never shown`. Agents run tools without a terminal, so only a
   person can add or rotate a secret.
 - Each value is encrypted with AES-256-GCM, bound to its alias, field and
-  version. The master key lives in the macOS Keychain; elsewhere, in a `0600`
-  file named by `KEYFENCE_VAULT_KEY_FILE`.
+  version. The master key lives in the macOS Keychain; elsewhere, in a private
+  file (`0600`, or an owner-only ACL on Windows) named by `KEYFENCE_VAULT_KEY_FILE`.
 - Every secret has a policy: allowed operations, target hosts, commands and
   projects, default deny. Shells and interpreters can never receive a secret.
 - Every vault value is protected in every session from the start, even one

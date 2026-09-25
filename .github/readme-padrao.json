@@ -28,6 +28,7 @@
   "notice": "Not affiliated with or endorsed by Anthropic. \"Claude\" and \"Claude Code\" are Anthropic trademarks.",
   "what": {
     "product": "Claude Code hook plus a local vault that keeps credentials in and organized",
+    "platform": "macOS, Linux and Windows (Bash and PowerShell)",
     "capture": "a credential pasted in any form becomes a record: service, account, login, password",
     "detects": "53 formats · labeled values · ?key= links · contextual classifier",
     "vault": "AES-256-GCM, master key in the macOS Keychain, no command that prints a value",
