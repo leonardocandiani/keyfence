@@ -12,7 +12,13 @@ const { rules } = require('./rules');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
-const LABEL = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/gi;
+// Label, separator and optional opening quote; then the value. In a message the
+// value may start with anything but a space or quote (its end is found from the
+// message's syntax); in code it must open with 8 plain characters, as quotes,
+// brackets and commas there are the language's own syntax.
+const LABEL_HEAD = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)/.source;
+const LABEL = new RegExp(LABEL_HEAD + /([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/.source, 'gi');
+const LABEL_CODE = new RegExp(LABEL_HEAD + /([^\s"'`,;()[\]{}<>]{8,})(\(?)/.source, 'gi');
 
 // Values that look like placeholders, references or code, never a real secret.
 // Each one is the whole value's shape, never a prefix: `my_Dog2024!` is a
@@ -101,11 +107,12 @@ function isReference(v) {
 // `message` is true for what a person typed: there `Senha: joao.silva99` is the
 // password, while in a file the same shape is code (`password: config.db`).
 function looksSecret(v, labeled = false, message = false) {
-  // A password label already says what the value is. Any character goes; only a
-  // value that is wholly something else (a reference, an example) is left out.
-  if (typeof labeled === 'string' && PASSWORD_LABEL.test(labeled)) {
-    return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v) && (message || !isReference(v));
-  }
+  // In what a person typed, a password label already says what the value is: any
+  // character goes, only a value that is wholly something else (a placeholder,
+  // an example) is left out. In code the word sits in keys, ternaries and
+  // comparisons (`'password' : /TOKEN$/.test(n)`), so there the value is judged.
+  const passwordLabel = typeof labeled === 'string' && PASSWORD_LABEL.test(labeled);
+  if (passwordLabel && message) return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v);
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;
@@ -124,6 +131,9 @@ function looksSecret(v, labeled = false, message = false) {
   // Under a label a weak password is still a password (robson9999): lower floor.
   const floor = labeled ? 2.2 : v.length < 16 ? 2.8 : 3.0;
   if (/^[A-Za-z]+$/.test(v)) {
+    // Under a password label a word is the password ("senha: flamengo"); under
+    // token or key it is more likely a field name ("token": "Categoria").
+    if (passwordLabel) return v.length >= 6;
     // A word (word, Word, WORD) is not a secret; random letters switch case often.
     if (/^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(v)) return false;
     return caseSwitches(v) >= 3 && h >= floor;
@@ -165,14 +175,13 @@ function scanRules(text, lower) {
 
 // Where a value ends comes from the message's syntax, never from what the value
 // holds: a password can carry any printable character. A value alone at the end
-// of its line, after a label or on a line of its own, is taken exactly as written
-// (in code, `auth: isAuthenticatedUser,` ends in a terminator, so not there).
+// of its line, after a label or on a line of its own, is taken exactly as written.
 // In running text, sentence punctuation glued to it and a bracket or quote it
 // does not open come off: "a senha é X, e o login..." or "(senha X)".
 const OPENER = { ')': '(', ']': '[', '}': '{', '>': '<' };
 const CLOSER = { '(': ')', '[': ']', '{': '}', '<': '>' };
-function edgeOf(before, tok, after, code = false) {
-  if (!code && !after.trim() && (!before.trim() || /[:=]\s*$/.test(before))) return tok;
+function edgeOf(before, tok, after) {
+  if (!after.trim() && (!before.trim() || /[:=]\s*$/.test(before))) return tok;
   let w = tok;
   for (let prev = ''; prev !== w && w;) {
     prev = w;
@@ -190,7 +199,7 @@ function edgeOf(before, tok, after, code = false) {
 
 // A quote before the value opens it only when the same quote closes it on that
 // line (an escaped quote does not); otherwise the quote belongs to the value.
-function fullValue(text, at, quote, message) {
+function fullValue(text, at, quote) {
   const lineStart = text.lastIndexOf('\n', at - 1) + 1;
   const lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);
   const line = text.slice(at, lineEnd);
@@ -201,21 +210,42 @@ function fullValue(text, at, quote, message) {
   }
   const from = quote ? at - 1 : at;
   const tok = /^\S*/.exec(text.slice(from, lineEnd))[0];
-  const value = edgeOf(text.slice(lineStart, from), tok, text.slice(from + tok.length, lineEnd), !message);
+  const value = edgeOf(text.slice(lineStart, from), tok, text.slice(from + tok.length, lineEnd));
   return { value, start: from + tok.indexOf(value) };
+}
+
+// Code: the token goes on past the plain start when it has no space; trailing
+// punctuation and quotes come off, a closing quote ends a quoted value, and a
+// second `=` means chained assignments, not one value.
+function codeValue(text, at, quote, raw) {
+  const rest = text.slice(at, at + 256);
+  if (quote) {
+    const close = rest.indexOf(quote);
+    return close >= raw.length ? rest.slice(0, close) : raw;
+  }
+  const tok = /^\S+/.exec(rest)[0].replace(/[,;.:)\]}>'"`]+$/, '');
+  return (/=/.test(tok.slice(raw.length)) ? raw : tok).replace(/[.:]+$/, '');
 }
 
 function scanLabeled(text, message = false) {
   const out = [];
-  LABEL.lastIndex = 0;
+  const re = message ? LABEL : LABEL_CODE;
+  re.lastIndex = 0;
   let m;
-  while ((m = LABEL.exec(text))) {
+  while ((m = re.exec(text))) {
     const [, label, quote, raw, call] = m;
     const at = m.index + m[0].length - raw.length - call.length;
-    const { value, start } = fullValue(text, at, quote, message);
-    // `token = getToken(user, x)` is code; `Senha: ab9(Xy` alone on a line someone
-    // typed is not.
-    if (call && !quote && /^[A-Za-z_$][\w$.]*$/.test(raw) && (!message || text.slice(start + value.length).split('\n')[0].trim())) continue;
+    let value;
+    let start = at;
+    if (message) {
+      ({ value, start } = fullValue(text, at, quote));
+      // `token = getToken(user, x)` reads as code even in a message; `Senha: ab9(Xy`
+      // alone on its line does not.
+      if (call && !quote && /^[A-Za-z_$][\w$.]*$/.test(raw) && text.slice(start + value.length).split('\n')[0].trim()) continue;
+    } else {
+      if (call || PLACEHOLDER.test(raw)) continue; // `token = getToken(` is code
+      value = codeValue(text, at, quote, raw);
+    }
     if (!value || PLACEHOLDER.test(value)) continue;
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.

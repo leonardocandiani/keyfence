@@ -48,6 +48,16 @@ for (const gen of ambiguous) {
 const ambTotal = ambiguous.length * ROUNDS;
 if (ambCaught < ambTotal * 0.95) { fail++; }
 
+// keyfence's own source is code full of labels (password, token, auth) next to
+// regexes, ternaries and template literals: none of it is a secret.
+const fsx = require('fs');
+const pathx = require('path');
+const srcDir = pathx.join(__dirname, '..', 'src');
+for (const f of fsx.readdirSync(srcDir).filter((x) => x.endsWith('.js'))) {
+  const hits = scan(fsx.readFileSync(pathx.join(srcDir, f), 'utf8')).findings;
+  if (hits.length) { fail++; fps.push(`  false positive in own source src/${f}: ${hits.map((h) => h.rule).join(',')}`); }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);
