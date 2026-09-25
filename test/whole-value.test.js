@@ -17,9 +17,12 @@ const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('')
 // value on a line of its own) the value runs to the end of the line, so anything
 // goes but a leading quote, which reads as quoting. In running text the value
 // may not start or end with punctuation the sentence itself would use: in "a
-// senha é X?" nobody can tell whose `?` it is, so the sentence gets it.
-const FIELD = (v) => !/^["'`]/.test(v);
-const PROSE = (v) => FIELD(v) && !/[.,;:?"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v);
+// senha é X?" nobody can tell whose `?` it is, so the sentence gets it. Nor
+// may it be wholly shaped like a file path (/ab/cd99, ~/x, ./x): in prose that
+// reads as one.
+// Anywhere, a value that is wholly `$NAME` reads as a variable, not a password.
+const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v);
+const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v);
 const LAYOUTS = [
   ['label', '', FIELD, (v) => `Senha: ${v}`],
   ['login + label', '', FIELD, (v) => `Usuário: joao.silva\nSenha: ${v}`],

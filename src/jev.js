@@ -95,7 +95,7 @@ async function classify(text, cfg) {
 // Only what is wholly a label, a flag, a URL, a path, a version or a file name:
 // a password may start with `/` or end with `=` like base64. A path starts with
 // ~/ ./ ../ or has two segments; one lowercase segment is a URL path (/cpanel).
-const NOT_A_VALUE = (w) => /^--[a-z]/.test(w) || /^\p{L}[\p{L}_-]*[:=]$/u.test(w) || /^https?:\/\//.test(w)
+const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p{L}[\p{L}_-]*[:=]$/u.test(w) || /^https?:\/\//.test(w)
   || /^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(w) || /^\/[a-z0-9._-]+\/?$/.test(w) || /^v?\d+(?:\.\d+)+$/.test(w) || /^\d{1,7}$/.test(w)
   || /^[\w./-]+\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(w)
   || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w);

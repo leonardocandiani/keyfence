@@ -15,7 +15,23 @@ const { rules } = require('./rules');
 const LABEL = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/gi;
 
 // Values that look like placeholders, references or code, never a real secret.
-const PLACEHOLDER = /^(?:[xX*.#-]{3,}$|<[\w\s.-]+>$|⟨|\{\{.*\}\}$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$|\$\(|process\.env|os\.environ|env\(|getenv|import\.meta|secrets\.|vault:|op:\/\/|ssm:|arn:aws|(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)$|(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-])/i;
+// Each one is the whole value's shape, never a prefix: `my_Dog2024!` is a
+// password even though `my_api_key` is an example.
+const PLACEHOLDER = new RegExp(`^(?:${[
+  '[xX*.#-]{3,}', // xxxx, ****
+  '<[\\w\\s.-]+>', // <your-password>
+  '\u27e8.*', // a value keyfence already replaced: \u27e8NAME\u27e9
+  '\\{\\{.*\\}\\}', // {{ secret }}
+  '\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?', // $VAR, ${VAR}
+  '\\$\\(.*\\)', // $(command)
+  '(?:process\\.env|import\\.meta\\.env)(?:\\.[A-Za-z_]\\w*|\\[.*\\])',
+  'os\\.environ(?:\\[.*\\]|\\.get\\(.*\\))',
+  '(?:os\\.)?(?:env|getenv)\\(.*\\)',
+  'secrets\\.[A-Za-z_][\\w.]*',
+  '(?:vault:|op:\\/\\/|ssm:|arn:aws:)\\S+',
+  '(?:true|false|null|none|nil|undefined|required|optional|string|number|redacted|changeme|placeholder|dummy|test123|password1?2?3?|senha1?2?3?)',
+  '(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-][A-Za-z_-]+', // your_api_key
+].join('|')})$`, 'i');
 
 function entropy(s) {
   if (!s) return 0;
