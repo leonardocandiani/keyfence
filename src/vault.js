@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const os = require('os');
+const { makePrivate, renameRetry } = require('./fsmode');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
@@ -48,6 +49,7 @@ function fileKey(file, create) {
   const key = crypto.randomBytes(32);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, key.toString('hex'), { mode: 0o600 });
+  makePrivate(file);
   return key;
 }
 
@@ -70,9 +72,10 @@ function load() {
 
 function save(v) {
   fs.mkdirSync(vaultDir(), { recursive: true, mode: 0o700 });
+  makePrivate(vaultDir(), { dir: true });
   const tmp = `${vaultFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(v, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, vaultFile());
+  renameRetry(tmp, vaultFile());
   publishFingerprints(v);
 }
 
@@ -109,7 +112,7 @@ function publishFingerprints(v) {
   }
   const tmp = `${fingerprintFile()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ salt: v.salt, list }), { mode: 0o600 });
-  fs.renameSync(tmp, fingerprintFile());
+  renameRetry(tmp, fingerprintFile());
 }
 
 // --- lifecycle -----------------------------------------------------------------------

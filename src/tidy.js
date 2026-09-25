@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { makePrivate } = require('./fsmode');
 const { scan } = require('./detect');
 const { build } = require('./credential');
 const { parseEnv } = require('./capture');
@@ -127,6 +128,7 @@ async function applyPlan(p) {
   const backup = `${p.file}.bak-keyfence-${Date.now()}`;
   fs.copyFileSync(p.file, backup);
   fs.chmodSync(backup, 0o600);
+  makePrivate(backup);
   const lines = fs.readFileSync(p.file, 'utf8').split('\n').filter((l) => { const m = ENV_LINE.exec(l); return !(m && p.drop.has(m[1])); });
   const added = p.add.map(({ n, v }) => `${n}=${quote(v)}\n`).join('');
   fs.writeFileSync(p.file, lines.join('\n').replace(/\n*$/, '\n') + added, { mode: 0o600 });

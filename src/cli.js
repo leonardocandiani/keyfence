@@ -5,6 +5,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { renameRetry } = require('./fsmode');
 const { scan, shape } = require('./detect');
 const { rules } = require('./rules');
 const config = require('./config');
@@ -206,7 +207,7 @@ function writeSettings(file, settings) {
   const tmp = `${file}.tmp-keyfence-${process.pid}`;
   fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`);
   JSON.parse(fs.readFileSync(tmp, 'utf8'));
-  fs.renameSync(tmp, file);
+  renameRetry(tmp, file);
 }
 
 function cmdInstall(flags) {

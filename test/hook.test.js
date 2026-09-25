@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { positives } = require('./gen');
+const { isPrivate } = require('../src/fsmode');
 
 const HOOK = path.join(__dirname, '..', 'bin', 'keyfence-hook.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'keyfence-test-'));
@@ -58,6 +59,18 @@ check('heredoc body mentioning a vault read is data', decision(pre('Bash', { com
 check('real read after a heredoc still denied', decision(pre('Bash', { command: `cat > n.md <<'MD'\nhello\nMD\n${VREAD}` }).out), 'deny');
 check('ls is fine', decision(pre('Bash', { command: 'ls -la ~/.ssh' }).out), 'pass');
 check('Read normal file', decision(pre('Read', { file_path: path.join(repo, 'src/app.ts') }).out), 'pass');
+
+// --- Windows path forms and the PowerShell tool ----------------------------
+check('Read .env with backslashes', decision(pre('Read', { file_path: 'C:\\proj\\app\\.env' }).out), 'deny');
+check('Read .env with drive and slashes', decision(pre('Read', { file_path: 'C:/proj/app/.env' }).out), 'deny');
+check('Read .env.example with backslashes is fine', decision(pre('Read', { file_path: 'C:\\proj\\app\\.env.example' }).out), 'pass');
+check('Read ssh key with backslashes', decision(pre('Read', { file_path: 'C:\\Users\\ana\\.ssh\\id_ed25519' }).out), 'deny');
+check('PowerShell Get-Content .env', decision(pre('PowerShell', { command: 'Get-Content .env' }).out), 'deny');
+check('PowerShell gc alias on a Windows path', decision(pre('PowerShell', { command: 'gc C:\\proj\\.env | Select-Object -First 3' }).out), 'deny');
+check('PowerShell ReadAllText on .env', decision(pre('PowerShell', { command: "[IO.File]::ReadAllText('C:\\proj\\.env')" }).out), 'deny');
+check('PowerShell Select-String on .env', decision(pre('PowerShell', { command: 'Select-String -Path .env -Pattern KEY -Quiet' }).out), 'deny');
+check('PowerShell listing a folder is fine', decision(pre('PowerShell', { command: 'Get-ChildItem C:\\proj' }).out), 'pass');
+check('PowerShell reading a normal file is fine', decision(pre('PowerShell', { command: 'Get-Content C:\\proj\\README.md' }).out), 'pass');
 
 // --- secret pasted in the prompt -------------------------------------------
 const pasted = gen('stripe');
@@ -136,7 +149,7 @@ check('capture: the prompt goes on (no block)', decision(cp.out), 'context');
 check('capture: agent is told the variable name', JSON.stringify(cp.out).includes('$META_ACCESS_TOKEN'), true);
 check('capture: context never echoes the value', JSON.stringify(cp.out).includes(metaTok), false);
 check('capture: value saved to the project .env', readEnv(capEnv).includes(`META_ACCESS_TOKEN=${metaTok}\n`), true);
-check('capture: .env is private (0600)', (fs.statSync(capEnv).mode & 0o777).toString(8), '600');
+check('capture: .env is private (0600, or owner-only ACL on Windows)', isPrivate(capEnv), true);
 const again = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `de novo: ${metaTok}` });
 check('capture: same token twice is saved once', count(readEnv(capEnv), metaTok), 1);
 check('capture: second paste reuses the name', JSON.stringify(again.out).includes('already saved'), true);
@@ -188,6 +201,9 @@ waitFor(() => readEnv(sisEnvFile).includes('SIS_ROBSON_PASSWORD='));
 const sisEnv = readEnv(sisEnvFile);
 check('credential: login and password saved together under their names', sisEnv.includes('SIS_ROBSON_LOGIN=robson.silva@empresa.com.br') && sisEnv.includes(`SIS_ROBSON_PASSWORD=${sisPw}`), true);
 check('credential: the provisional names still load during the rename (removed by maintain)', /KF_[0-9A-F]{4}_PASSWORD=/.test(sisEnv), true);
+// The background job writes the env file first and the note for the agent last.
+const sessionState = path.join(os.tmpdir(), `keyfence-${SID}.json`);
+waitFor(() => readEnv(sessionState).includes('"d":"notice"'));
 const renamedNote = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'ok' } }).out;
 check('credential: the agent is told the record and the names', /sis\/robson/.test(JSON.stringify(renamedNote)) && /SIS_ROBSON_PASSWORD/.test(JSON.stringify(renamedNote)), true);
 check('credential: commands using the new name get the file loaded', JSON.stringify(pre('Bash', { command: 'echo $SIS_ROBSON_PASSWORD' }).out || {}).includes('set -a'), true);
