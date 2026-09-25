@@ -1,17 +1,17 @@
 <!-- readme-padrao:header -->
 <!-- Banner -->
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:00d9ff&height=200&section=header&text=keyfence&fontSize=54&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=Keeps%20secrets%20from%20leaking%20out%20of%20AI%20coding%20agent%20sessions&descAlignY=58&descSize=16" alt="keyfence" width="100%" />
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:00d9ff&height=200&section=header&text=keyfence&fontSize=54&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=Keeps%20secrets%20from%20leaking%20out%20of%20AI%20coding%20agent%20sessions%2C%20and%20keeps%20them%20organized%20in%20a%20local%20vault&descAlignY=58&descSize=16" alt="keyfence" width="100%" />
 </div>
 
 <!-- Typing -->
 <div align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=Paste+a+token+in+the+chat+and+keep+working;Remembers+every+key+it+sees%2C+by+hash+only;Blocks+it+from+curl%2C+commits%2C+MCP+and+tracked+files;53+provider+formats%2C+zero+dependencies%2C+7+ms+per+call" alt="Paste a token in the chat and keep working" />
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=Paste+a+token+in+the+chat+and+keep+working;Saved+as+a+credential%3A+service%2C+account%2C+login%2C+password;Finds+the+keys+already+on+your+disk+and+files+them;Blocked+from+curl%2C+commits%2C+MCP+and+tracked+files" alt="Paste a token in the chat and keep working" />
 </div>
 
 <div align="center">
 
-  <p><strong>A Claude Code hook that watches every place a secret can come in and every place it can go out.</strong></p>
+  <p><strong>A Claude Code hook and local vault: it catches every credential that enters a session, files it by name, and stops it at every exit.</strong></p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00d9ff?style=for-the-badge" alt="License: MIT" /></a>
@@ -35,24 +35,23 @@
 
 <br>
 
-> **keyfence** treats every credential that enters an agent session as tainted: pasted in the prompt, printed by a command, or read from a file, it is remembered by hash and denied at the exit, whether that exit is a `curl`, a commit, an MCP tool or a hardcoded config.
+> **keyfence** treats every credential that enters an agent session as tainted and files it as a credential: pasted in the prompt, printed by a command or already sitting in a `.env`, it gets a record in an encrypted local vault (`sis/robson`: login and password), a name the agent uses (`$SIS_ROBSON_PASSWORD`), and a hard stop at every exit, whether that exit is a `curl`, a commit, an MCP tool or a hardcoded config.
 
 > Not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are Anthropic trademarks.
 
 ## What it is
 
 ```yaml
-product: Claude Code hook that stops credentials from leaving an agent session
-capture: a token pasted in the chat is saved to the git-ignored .env under its SDK name and used by name
-in:      secrets pasted in the prompt or printed by any tool are remembered as SHA-256 prefixes, never values
-out:     denied to the network, commits, non-local tools, source files and git-tracked files
-output:  tool output reaches the agent with the variable name in place of the value
-vault:   reading .env, SSH keys or credential files is denied; counting and listing names still works
-detects: 53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier
-privacy: the optional jev classifier only ever sees the shape of a value (aaa999), never the value
-speed:   plain Node, no dependencies, about 7 ms per tool call
-install: npm install -g github:leonardocandiani/keyfence · keyfence install
-license: MIT
+product:  Claude Code hook plus a local vault that keeps credentials in and organized
+capture:  a credential pasted in any form becomes a record: service, account, login, password
+detects:  53 formats · labeled values · ?key= links · contextual classifier
+vault:    AES-256-GCM, master key in the macOS Keychain, no command that prints a value
+organize: discover finds keys on disk · tidy renames old ones · maintain runs daily
+out:      denied to the network, commits, non-local tools, source files and git-tracked files
+output:   tool output reaches the agent with the name in place of the value
+privacy:  the classifier only ever sees the shape of a value (aaa999), never the value
+install:  npm install -g github:leonardocandiani/keyfence · keyfence install
+license:  MIT
 ```
 
 <!-- /readme-padrao:header -->

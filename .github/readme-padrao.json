@@ -1,36 +1,39 @@
 {
   "name": "keyfence",
-  "desc": "Keeps secrets from leaking out of AI coding agent sessions",
+  "desc": "Keeps secrets from leaking out of AI coding agent sessions, and keeps them organized in a local vault",
   "lang": "en",
   "palette": "candiani",
   "author": "candiani",
   "license": "MIT",
   "typing": [
     "Paste a token in the chat and keep working",
-    "Remembers every key it sees, by hash only",
-    "Blocks it from curl, commits, MCP and tracked files",
-    "53 provider formats, zero dependencies, 7 ms per call"
+    "Saved as a credential: service, account, login, password",
+    "Finds the keys already on your disk and files them",
+    "Blocked from curl, commits, MCP and tracked files"
   ],
-  "tagline": "A Claude Code hook that watches every place a secret can come in and every place it can go out.",
+  "tagline": "A Claude Code hook and local vault: it catches every credential that enters a session, files it by name, and stops it at every exit.",
   "badges": [
     "license",
     "claude",
     "ci:test.yml",
-    { "label": "node", "msg": "18+ zero deps", "logo": "nodedotjs" },
+    {
+      "label": "node",
+      "msg": "18+ zero deps",
+      "logo": "nodedotjs"
+    },
     "prs"
   ],
-  "pitch": "**keyfence** treats every credential that enters an agent session as tainted: pasted in the prompt, printed by a command, or read from a file, it is remembered by hash and denied at the exit, whether that exit is a `curl`, a commit, an MCP tool or a hardcoded config.",
+  "pitch": "**keyfence** treats every credential that enters an agent session as tainted and files it as a credential: pasted in the prompt, printed by a command or already sitting in a `.env`, it gets a record in an encrypted local vault (`sis/robson`: login and password), a name the agent uses (`$SIS_ROBSON_PASSWORD`), and a hard stop at every exit, whether that exit is a `curl`, a commit, an MCP tool or a hardcoded config.",
   "notice": "Not affiliated with or endorsed by Anthropic. \"Claude\" and \"Claude Code\" are Anthropic trademarks.",
   "what": {
-    "product": "Claude Code hook that stops credentials from leaving an agent session",
-    "capture": "a token pasted in the chat is saved to the git-ignored .env under its SDK name and used by name",
-    "in": "secrets pasted in the prompt or printed by any tool are remembered as SHA-256 prefixes, never values",
+    "product": "Claude Code hook plus a local vault that keeps credentials in and organized",
+    "capture": "a credential pasted in any form becomes a record: service, account, login, password",
+    "detects": "53 formats · labeled values · ?key= links · contextual classifier",
+    "vault": "AES-256-GCM, master key in the macOS Keychain, no command that prints a value",
+    "organize": "discover finds keys on disk · tidy renames old ones · maintain runs daily",
     "out": "denied to the network, commits, non-local tools, source files and git-tracked files",
-    "output": "tool output reaches the agent with the variable name in place of the value",
-    "vault": "reading .env, SSH keys or credential files is denied; counting and listing names still works",
-    "detects": "53 provider formats · labeled values in EN/PT/ES · high-entropy strings · optional classifier",
-    "privacy": "the optional jev classifier only ever sees the shape of a value (aaa999), never the value",
-    "speed": "plain Node, no dependencies, about 7 ms per tool call",
+    "output": "tool output reaches the agent with the name in place of the value",
+    "privacy": "the classifier only ever sees the shape of a value (aaa999), never the value",
     "install": "npm install -g github:leonardocandiani/keyfence · keyfence install",
     "license": "MIT"
   }
