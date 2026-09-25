@@ -85,7 +85,7 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
     discovered: found.records.filter((r) => r.action === 'new' || r.action === 'added'),
     tidied,
     synced,
-    named: named.filter((x) => x.to),
+    named: named.filter((x) => (x.to && x.to !== x.alias) || x.repair),
     provisional,
     merged: dup.merged,
     unclear: dup.unclear,

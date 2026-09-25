@@ -49,7 +49,10 @@ function userMessage(line) {
 // (the rules for typed messages, or a word the classifier would be asked about),
 // messages from the env file's own project first. A value that is only a word in
 // some message (an old false capture) finds nothing and is left alone.
-function messagesWith(values, root) {
+// With `pieces`, a saved value that is only a piece of a secret detected in the
+// message (an older version cut a password at its `]`) belongs to that message
+// too, and the whole secret comes along as `whole`, in memory only.
+function messagesWith(values, root, { pieces = false } = {}) {
   const found = new Map();
   const escaped = values.map((v) => JSON.stringify(v).slice(1, -1));
   for (const file of sessionLogs()) {
@@ -58,7 +61,10 @@ function messagesWith(values, root) {
       const msg = userMessage(line);
       if (!msg) continue;
       const seen = new Set([...scan(msg.text, { message: true }).findings.map((f) => f.value), ...require('./jev').candidatesOf(msg.text, [], 50)]);
-      for (const v of values) if (seen.has(v) && better(msg, found.get(v), root)) found.set(v, msg);
+      for (const v of values) {
+        const whole = seen.has(v) ? null : pieces && v.length >= 4 ? [...seen].find((d) => d.includes(v)) : null;
+        if ((seen.has(v) || whole) && better(msg, found.get(v), root)) found.set(v, whole ? { ...msg, whole } : msg);
+      }
     }
   }
   return found;

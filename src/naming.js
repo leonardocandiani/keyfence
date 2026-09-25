@@ -263,12 +263,12 @@ async function nameOld({ apply = false, cfg = require('./config').load() } = {})
   const cap = require('./capture');
   const byAlias = oldAliases(cap);
   const secretVals = (vars) => vars.filter((v) => !/^(?:login|url)/.test(v.role)).map((v) => v.value);
-  const origin = require('./tidy').messagesWith([...byAlias.values()].flatMap(secretVals), '');
+  const origin = require('./tidy').messagesWith([...byAlias.values()].flatMap(secretVals), '', { pieces: true });
   const out = [];
   for (const [alias, vars] of byAlias) {
     const secrets = secretVals(vars);
     const msg = secrets.length ? origin.get(secrets[0]) : null;
-    const r = msg ? await planOld(alias, vars, secrets, msg, cfg) : { alias, action: 'kept: its message is no longer in the logs' };
+    const r = msg ? await planOld(alias, vars, secrets, { ...msg, whole: wholeOf(secrets, origin) }, cfg) : { alias, action: 'kept: its message is no longer in the logs' };
     if (apply) await applyOld(r, vars, cap);
     out.push(r);
   }
@@ -283,6 +283,11 @@ const generatedName = (alias, role) => {
   return [upper(service), account !== 'default' && upper(account), role.toUpperCase()].filter(Boolean).join('_');
 };
 
+// A variable keyfence named from a loose word and has not looked at since. Older
+// registries hold entries without alias or role: nothing to rename there.
+const worthNaming = (name, m, env, sdk) => Boolean(m && m.alias && m.role) && !m.named && env.has(name) && !sdk.has(name)
+  && !isProvisional(m.alias) && name === generatedName(m.alias, m.role);
+
 // Registered variables not yet named by context, grouped by credential, with
 // values read from their env files (never printed).
 function oldAliases(cap) {
@@ -292,7 +297,7 @@ function oldAliases(cap) {
     if (!fs.existsSync(file)) continue;
     const env = cap.parseEnv(fs.readFileSync(file, 'utf8'));
     for (const [name, m] of Object.entries(map)) {
-      if (m.named || !env.has(name) || sdk.has(name) || isProvisional(m.alias) || name !== generatedName(m.alias, m.role)) continue;
+      if (!worthNaming(name, m, env, sdk)) continue;
       if (!byAlias.has(m.alias)) byAlias.set(m.alias, []);
       byAlias.get(m.alias).push({ file, name, role: m.role, value: env.get(name), environment: m.environment });
     }
@@ -309,20 +314,42 @@ function namedAtSource(msg, secrets) {
   return recs.length > 0 && recs.every((x) => x.sure);
 }
 
+// Every saved secret of a credential is a piece of the same secret in its
+// message: that secret, whole, is the real value.
+function wholeOf(secrets, origin) {
+  const wholes = new Set(secrets.map((v) => (origin.get(v) || {}).whole));
+  return wholes.size === 1 && [...wholes][0] ? [...wholes][0] : null;
+}
+
+// The saved secrets are pieces of `whole`: the first one's role gets it back.
+function repairOf(vars, secrets, whole) {
+  if (!whole) return null;
+  const pieces = vars.filter((v) => secrets.includes(v.value));
+  return { value: whole, role: pieces[0].role, pieces };
+}
+
 async function planOld(alias, vars, secrets, msg, cfg) {
-  if (namedAtSource(msg, secrets)) return { alias, action: 'kept: named by the user or the provider' };
+  const repair = repairOf(vars, secrets, msg.whole);
+  if (!repair && namedAtSource(msg, secrets)) return { alias, action: 'kept: named by the user or the provider' };
   const logins = vars.filter((v) => v.role === 'login').map((v) => v.value);
-  const [n] = await decide(msg.text, secrets, logins, cfg, msg.cwd);
+  const [n] = await decide(msg.text, repair ? [repair.value] : secrets, logins, cfg, msg.cwd);
   const current = alias.split('/')[1];
   const account = current !== 'default' ? current : n.account;
-  const to = `${n.service}/${account || 'default'}`;
-  return to === alias ? { alias, action: `kept: the context agrees (${n.by})` } : { alias, to, action: `renamed (${n.by})`, account };
+  // A name that exists is changed only when the context names the service.
+  const to = n.by === 'context' ? `${n.service}/${account || 'default'}` : alias;
+  return { alias, to, account, repair, action: outcome(to === alias, repair, n) };
+}
+
+function outcome(same, repair, n) {
+  const named = same ? (n.by === 'context' ? 'the context agrees' : 'the context did not name it') : `renamed (${n.by})`;
+  return repair ? `repaired: the saved value was a piece of the one in the message; ${named}` : same ? `kept: ${named}` : named;
 }
 
 async function applyOld(r, vars, cap) {
   const mark = (file, names, extra = {}) => cap.remember(file, Object.fromEntries(names.map((v) => [v.name, { alias: r.to || r.alias, role: v.role, environment: v.environment, named: true, ...extra }])));
   const files = [...new Set(vars.map((v) => v.file))];
-  if (!r.to) { files.forEach((f) => mark(f, vars.filter((v) => v.file === f))); return; }
+  if (r.repair) { await repairOld(r, vars, cap); return; }
+  if (!r.to || r.to === r.alias) { files.forEach((f) => mark(f, vars.filter((v) => v.file === f))); return; }
   const roles = [...new Set(vars.map((v) => v.role))];
   try { await require('./vault').move(r.alias, { [r.to]: Object.fromEntries(roles.map((x) => [x, x])) }); } catch { /* vault unavailable: the env files still get the names */ }
   const base = [upper(r.to.split('/')[0]), r.account && upper(r.account)].filter(Boolean).join('_');
@@ -337,6 +364,33 @@ async function applyOld(r, vars, cap) {
     r.names = [...(r.names || []), ...Object.entries(final).map(([o, n]) => `${o} -> ${n}`)];
   }
 }
+
+// A credential saved in pieces gets its whole value back: the vault record is
+// replaced, the first piece's line carries the whole value under the new name,
+// the other pieces' lines go (unless code reads them).
+async function repairOld(r, vars, cap) {
+  const pieces = new Set(r.repair.pieces.map((v) => v.name));
+  const keepVars = vars.filter((v) => !pieces.has(v.name));
+  const fields = { [r.repair.role]: r.repair.value, ...Object.fromEntries(keepVars.map((v) => [v.role, v.value])) };
+  const environment = vars[0].environment || 'dev';
+  const vault = require('./vault');
+  try { vault.remove(r.alias); await vault.upsert(r.to, fields, { environment, exposed: true }); } catch { /* vault unavailable: the env files are still fixed */ }
+  const base = [upper(r.to.split('/')[0]), r.account && upper(r.account)].filter(Boolean).join('_');
+  const nameOf = (role) => `${base}_${role.toUpperCase()}`;
+  for (const f of [...new Set(vars.map((v) => v.file))]) {
+    const here = vars.filter((v) => v.file === f);
+    const drop = here.filter((v) => (pieces.has(v.name) || v.name !== nameOf(v.role)) && !readByCode(v.name, path.dirname(f)));
+    dropLines(f, new Set(drop.map((v) => v.name)));
+    const env = cap.parseEnv(fs.readFileSync(f, 'utf8'));
+    const lines = Object.entries(fields).filter(([role]) => here.some((v) => v.role === role || pieces.has(v.name)))
+      .filter(([role]) => !env.has(nameOf(role))).map(([role, value]) => `${nameOf(role)}=${quoteShell(value)}`);
+    if (lines.length) fs.appendFileSync(f, `${fs.readFileSync(f, 'utf8').endsWith('\n') ? '' : '\n'}${lines.join('\n')}\n`, { mode: 0o600 });
+    cap.remember(f, Object.fromEntries(Object.keys(fields).map((role) => [nameOf(role), { alias: r.to, role, environment, named: true }])), drop.map((v) => v.name));
+    r.names = [...(r.names || []), ...Object.keys(fields).map((role) => nameOf(role))];
+  }
+}
+
+const quoteShell = (v) => (/^[A-Za-z0-9_\-+/=.:@~%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
 
 // What build() takes from decide(): each value's service and known account.
 const asOptions = (named) => ({ services: new Map(named.map((n) => [n.value, n.service])), accounts: new Map(named.map((n) => [n.value, n.account])) });

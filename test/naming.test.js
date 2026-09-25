@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const http = require('http');
 const { r } = require('./gen');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'keyfence-naming-'));
@@ -78,6 +79,7 @@ const envNames = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).m
     AQUI_ADM_LOGIN: { alias: 'aqui/adm', role: 'login', environment: 'dev' },
     PAINEL_PASSWORD: { alias: 'painel/default', role: 'password', environment: 'dev' },
     DB_PASS: { alias: 'sis/default', role: 'password', environment: 'dev' }, // the project's own name, registered by discover
+    OLD_ENTRY: {}, // an older registry entry without alias or role
   });
   vault.add('aqui/adm', { password: old1, login: 'adm' });
   const logDir = path.join(process.env.KEYFENCE_LOGS_DIR, 'p');
@@ -86,13 +88,49 @@ const envNames = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).m
   log(`com o acesso aqui, usando o keyfence:\n\n### Painel - sisfrota.com.br\n\nUsuário: adm\nSenha: ${old1}`);
   log(`PAINEL_PASSWORD=${old2}`);
   log(`a senha do banco é ${old3}`);
-  const plan = await naming.nameOld({ apply: false, cfg });
-  check('old names: plan renames the loose word to the context', plan.filter((x) => x.to).map((x) => `${x.alias}->${x.to}`).join(' '), 'aqui/adm->sisfrota/adm');
+  // An old truncated capture: a password cut at its `]` was saved as two fields.
+  const whole = `${r(5)}]${r(3, '0123456789')}#${r(5)}`;
+  const [pieceA, pieceB] = [whole.split(']')[0], whole.split(']')[1]];
+  fs.appendFileSync(sisEnv, `AQUI_PAINEL_PASSWORD='${pieceA}'\nAQUI_PAINEL_PASSWORD_2='${pieceB}'\nAQUI_PAINEL_LOGIN=painel\n`);
+  cap.remember(sisEnv, {
+    AQUI_PAINEL_PASSWORD: { alias: 'aqui/painel', role: 'password', environment: 'dev' },
+    AQUI_PAINEL_PASSWORD_2: { alias: 'aqui/painel', role: 'password_2', environment: 'dev' },
+    AQUI_PAINEL_LOGIN: { alias: 'aqui/painel', role: 'login', environment: 'dev' },
+  });
+  vault.add('aqui/painel', { password: pieceA, password_2: pieceB, login: 'painel' });
+  log(`segue o acesso aqui da hostgator\nUsuário: painel\nSenha: ${whole}`);
+
+  // Without the classifier an existing name is never changed by structure alone.
+  const blind = await naming.nameOld({ apply: false, cfg });
+  check('old names: without context, an existing name stays', (blind.find((x) => x.alias === 'aqui/adm') || {}).action, 'kept: the context did not name it');
+
+  // A local fake of the classifier: it knows which word names each service.
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const body = JSON.parse(raw);
+      const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, { noul: /"(?:sisfrota|hostgator)"/i.test(q.instructions) ? 0.9 : 0.04 }]));
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ answers }));
+    });
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  process.env.KEYFENCE_TEST_KEY = 'test';
+  const live = { ...cfg, jev: { ...cfg.jev, enabled: true, endpoint: `http://127.0.0.1:${server.address().port}/v1`, apiKeyEnv: 'KEYFENCE_TEST_KEY', apiKeyFile: '' } };
+  const plan = await naming.nameOld({ apply: false, cfg: live });
+  check('old names: plan renames the loose word to the context', plan.filter((x) => x.to && x.to !== x.alias).map((x) => `${x.alias}->${x.to}`).join(' '), 'aqui/adm->sisfrota/adm aqui/painel->hostgator/painel');
   check('old names: a name the user wrote stays', (plan.find((x) => x.alias === 'painel/default') || {}).action, 'kept: named by the user or the provider');
-  await naming.nameOld({ apply: true, cfg });
-  check('old names: env file renamed, the project\'s own DB_PASS untouched', envNames(sisEnv), 'SISFROTA_ADM_PASSWORD SISFROTA_ADM_LOGIN PAINEL_PASSWORD DB_PASS');
-  check('old names: vault moved', vault.list().map((x) => x.alias).filter((a) => /adm/.test(a)).join(' '), 'sisfrota/adm');
+  check('old names: a password saved in pieces is found and repaired', /^repaired/.test((plan.find((x) => x.alias === 'aqui/painel') || {}).action), true);
+  await naming.nameOld({ apply: true, cfg: live });
+  server.close();
+  check('old names: env file renamed and repaired, the project\'s own DB_PASS untouched', envNames(sisEnv), 'SISFROTA_ADM_PASSWORD SISFROTA_ADM_LOGIN PAINEL_PASSWORD DB_PASS HOSTGATOR_PAINEL_PASSWORD HOSTGATOR_PAINEL_LOGIN');
+  check('old names: vault moved', vault.list().map((x) => x.alias).filter((a) => /adm|painel/.test(a)).join(' '), 'hostgator/painel sisfrota/adm');
   check('old names: value intact', cap.parseEnv(fs.readFileSync(sisEnv, 'utf8')).get('SISFROTA_ADM_PASSWORD') === old1, true);
+  check('repair: the whole password is back, in one field', cap.parseEnv(fs.readFileSync(sisEnv, 'utf8')).get('HOSTGATOR_PAINEL_PASSWORD') === whole, true);
+  check('repair: the vault record has the whole value and the login', (vault.show('hostgator/painel') || {}).fields.slice().sort().join(','), 'login,password');
+  const fp = vault.fingerprints();
+  check('repair: the vault value is the whole password', fp.list.some((x) => x.alias === 'hostgator/painel' && x.field === 'password' && x.fp === vault.fingerprint(fp.salt, Buffer.from(whole))), true);
   check('old names: asked once, nothing left to look at next time', (await naming.nameOld({ apply: false, cfg })).length, 0);
 
   fs.rmSync(tmp, { recursive: true, force: true });
