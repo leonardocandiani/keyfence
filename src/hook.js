@@ -53,7 +53,9 @@ const SAFE_READ = [
 // Env and credential files are the sanctioned store and are not marked, since
 // loading a key from .env to call its own API is the intended use.
 const ASSIGN = /^\s*(?:export\s+|declare\s+(?:-\w+\s+)*|local\s+|readonly\s+|typeset\s+)?([A-Za-z_][A-Za-z0-9_]*)=/;
-const REDIRECT = /(?:\d?>>?|\btee\s+(?:-a\s+)?)\s*([^\s;|&<>'"`]+)/g;
+// `>` and `>>` into a path (`>=` is a comparison, not a redirect), or tee.
+const REDIRECT = /(?:\d?>>?(?!=)|\btee\s+(?:-a\s+)?)\s*([^\s;|&<>'"`=][^\s;|&<>'"`]*)/g;
+const PATH_LIKE = /^(?:[~.]?\/|[\w.-]+(?:\/|\.\w+$))/;
 // Forms that hand a file's content to a network command: curl -d @f, < f, -T f.
 const SENDS_FILE = /(?:@|<\s*|-T\s+|--upload-file\s+)([^\s;|&<>'"`]+)/g;
 
@@ -186,15 +188,19 @@ function copiesOf(tool, input, file, list, cfg) {
   const out = [];
   if (tool === 'Bash') {
     const cmd = String(input.command || '');
-    for (const seg of cmd.split(/\|\||&&|[;\n]/)) {
-      const hit = findTainted(seg, list);
-      const m = hit && ASSIGN.exec(seg);
-      if (m) out.push({ d: 'var', n: m[1], rule: hit.rule });
-    }
+    // A heredoc body is data: `s=open(p).read()` in a python heredoc is not a
+    // shell variable, `>=` in it is not a redirect. The value in it still counts.
+    const shell = stripHeredocs(cmd);
     const hit = findTainted(cmd, list);
+    for (const seg of shell.split(/\|\||&&|[;\n]/)) {
+      // `X=$(cat <<EOF` with the value in the body is still a copy into X.
+      const segHit = findTainted(seg, list) || (seg.includes('<<heredoc') && hit);
+      const m = segHit && ASSIGN.exec(seg);
+      if (m) out.push({ d: 'var', n: m[1], rule: segHit.rule });
+    }
     if (hit) {
-      for (const [, t] of cmd.matchAll(REDIRECT)) {
-        if (!t.startsWith('&') && t !== '/dev/null' && !isStore(t)) out.push({ d: 'file', n: t, rule: hit.rule });
+      for (const [, t] of shell.matchAll(REDIRECT)) {
+        if (!t.startsWith('&') && t !== '/dev/null' && PATH_LIKE.test(t) && !isStore(t)) out.push({ d: 'file', n: t, rule: hit.rule });
       }
     }
   } else if (file && !isStore(file)) {
@@ -216,7 +222,7 @@ function mentionsFile(text, p) {
 function copyLeaving(text, list, cfg) {
   for (const x of list) {
     if (x.d === 'var' && new RegExp(`\\$\\{?${x.n}\\b`).test(text)) return `${x.rule}, copied into $${x.n}`;
-    if (x.d === 'file' && mentionsFile(text, x.n)) return `${x.rule}, copied into ${x.n}`;
+    if (x.d === 'file' && PATH_LIKE.test(x.n) && mentionsFile(text, x.n)) return `${x.rule}, copied into ${x.n}`;
   }
   for (const [, t] of stripHeredocs(text).matchAll(SENDS_FILE)) {
     if (cfg._vault.some((re) => re.test(t))) return `the content of ${t}`;
