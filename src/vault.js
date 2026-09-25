@@ -229,6 +229,33 @@ function setPolicy(alias, policy) {
   return describe(alias, s);
 }
 
+/**
+ * Give a credential its real name: move its fields to other aliases, each field
+ * under a (possibly new) field name, then drop the old alias. `targets` is
+ * {alias: {oldField: newField}}; one credential can split in two when a message
+ * carried credentials of two services. A target that already exists is merged
+ * like a capture (upsert). Values are decrypted and sealed again here, under
+ * the new alias; none leaves this module.
+ */
+async function move(from, targets) {
+  const s = load().secrets[from];
+  if (!s) throw new Error(`no secret ${from}`);
+  Object.keys(targets).forEach(checkAlias);
+  const plain = await use(from, (p) => Object.fromEntries(Object.entries(p).map(([k, b]) => [k, Buffer.from(b)])));
+  const meta = { environment: s.environment, exposed: s.exposed, policy: s.policy, sources: s.sources };
+  const out = [];
+  try {
+    for (const [alias, fields] of Object.entries(targets)) {
+      const picked = Object.fromEntries(Object.entries(fields).filter(([f]) => plain[f]).map(([f, to]) => [to, Buffer.from(plain[f])]));
+      if (Object.keys(picked).length) out.push({ alias, action: (await upsert(alias, picked, meta)).action });
+    }
+  } finally {
+    for (const b of Object.values(plain)) b.fill(0);
+  }
+  if (!Object.keys(targets).includes(from)) remove(from);
+  return out;
+}
+
 // --- reading: metadata only ----------------------------------------------------------
 
 function describe(alias, s) {
@@ -293,4 +320,4 @@ function fingerprints() {
   }
 }
 
-module.exports = { add, upsert, rotate, duplicates, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
+module.exports = { add, upsert, move, rotate, duplicates, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };

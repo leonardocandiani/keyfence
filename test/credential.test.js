@@ -28,9 +28,16 @@ check('SIS: login and password together, named after service and account', names
 check('SIS: the login value is the one sent', sis[0] && sis[0].fields.login, 'robson.silva@empresa.com.br');
 
 const pin = `${r(8, '0123456789')}*`;
-const wv = build(`login e senha da wavoip pra tu usar\n\nmkt@empresa.com.br\n${pin}`, [{ value: pin, rule: 'classifier', start: 60 }], callRepo);
-check('loose lines: service from the words, account from the email', wv[0] && wv[0].alias, 'wavoip/mkt');
+const wvText = `login e senha da wavoip pra tu usar\n\nmkt@empresa.com.br\n${pin}`;
+const wvItem = [{ value: pin, rule: 'classifier', start: 60 }];
+// The service comes from the context (naming.js asks the classifier); build takes its answer.
+const wv = build(wvText, wvItem, callRepo, [], { services: new Map([[pin, 'wavoip']]) });
+check('loose lines: service from the context, account from the email', wv[0] && wv[0].alias, 'wavoip/mkt');
 check('loose lines: names', names(wv[0]), 'login=WAVOIP_MKT_LOGIN password=WAVOIP_MKT_PASSWORD');
+// Without the context, never a loose word from the sentence: the project.
+check('loose lines: without context, the project names it', (build(wvText, wvItem, callRepo)[0] || {}).alias, 'call/mkt');
+const prov = build(wvText, wvItem, callRepo, [], { provisional: '7f3a' })[0] || {};
+check('loose lines: a provisional code until the context names it', `${prov.alias} ${names(prov)}`, 'kf/7f3a login=KF_7F3A_LOGIN password=KF_7F3A_PASSWORD');
 
 const hex = r(32, '0123456789abcdef');
 const url = recs(`testa https://api.placafipe.com.br/v1/placa/ABC1D23?key=${hex}`, sisRepo);

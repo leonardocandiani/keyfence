@@ -170,24 +170,57 @@ function readRegistry() {
   }
 }
 const registered = () => readRegistry().files;
-function remember(file, names = {}) {
+function remember(file, names = {}, drop = []) {
   const r = readRegistry();
   if (!r.files.includes(file)) r.files.push(file);
   r.names[file] = { ...(r.names[file] || {}), ...names };
+  for (const n of drop) delete r.names[file][n];
   try {
     fs.mkdirSync(path.dirname(registryFile()), { recursive: true, mode: 0o700 });
     fs.writeFileSync(registryFile(), JSON.stringify(r, null, 2), { mode: 0o600 });
   } catch { /* best effort */ }
 }
 
+// A value as the shell reads it: 'single' quoted parts, "double" quoted parts
+// with \" \\ \$ \` escapes, and bare characters with \ escapes, joined. `save`
+// writes 'ab'\''cd' for a value with a quote; reading it back must give ab'cd.
+function shellWord(raw) {
+  const v = raw.trim();
+  if (!/^['"]/.test(v) && !/\\/.test(v)) return v.replace(/\s+#.*$/, '');
+  let out = '';
+  for (let i = 0; i < v.length;) {
+    const c = v[i];
+    if (c === "'") {
+      const end = v.indexOf("'", i + 1);
+      if (end < 0) return v; // unbalanced: not shell syntax, keep as written
+      out += v.slice(i + 1, end);
+      i = end + 1;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < v.length && v[j] !== '"'; j++) {
+        if (v[j] === '\\' && /["\\$`]/.test(v[j + 1] || '')) j++;
+        out += v[j];
+      }
+      if (j >= v.length) return v;
+      i = j + 1;
+    } else if (c === '\\' && i + 1 < v.length) {
+      out += v[i + 1];
+      i += 2;
+    } else if (/\s/.test(c)) {
+      break; // a space ends the word; what follows is a comment
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
 function parseEnv(src) {
   const out = new Map();
   for (const line of src.split('\n')) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (!m) continue;
-    let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    out.set(m[1], v);
+    if (m) out.set(m[1], shellWord(m[2]));
   }
   return out;
 }

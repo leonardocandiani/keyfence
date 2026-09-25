@@ -42,7 +42,10 @@ const server = http.createServer((req, res) => {
     const answers = {};
     for (const id of Object.keys(body.questions)) {
       const m = new RegExp(`⟨${id}:([^⟩]*)⟩`).exec(body.state.message);
-      answers[id] = { noul: m && m[1] === shape(secret) ? 0.92 : m && m[1] === shape(fuzzy) ? 0.3 : 0.04 };
+      // Naming questions ask about a word in clear: the fake knows "fipe" names the key.
+      const naming = /^s\d+w\d+$/.test(id);
+      answers[id] = { noul: naming ? (/"fipe"/i.test(body.questions[id].instructions) ? 0.9 : 0.04)
+        : m && m[1] === shape(secret) ? 0.92 : m && m[1] === shape(fuzzy) ? 0.3 : 0.04 };
     }
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ answers }));

@@ -109,15 +109,46 @@ keyfence: vault record  sis/robson  (login, password)
 
 | You send | Saved as |
 |---|---|
-| a login and a password | one record `service/account` with both; the service from the words ("senha da wavoip"), the link's host or the project, the account from the login |
+| a login and a password | one record `service/account` with both; the service named by the message's context, the account from the login |
 | a new password for an account keyfence already has | a **rotation** of that record; the login stays, the old version is kept |
 | a known provider's token | the name its SDK reads: `META_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`... |
 | `PAINEL_PASSWORD=...` | the name you wrote |
 | a link with `?key=...` | the API's host plus the kind: `PLACAFIPE_API_KEY` |
 
-"senha do robson" and "senha da wavoip" read the same; keyfence tells a person
-from a service by what the vault already holds. Every record is marked as
-exposed, since it came through the chat, and `keyfence secret list` shows it.
+**Named by context, not by a loose word.** When nothing in the value itself
+names it (no provider format, no name you wrote, no link), the credential is
+saved at once under a provisional code, `kf/7f3a` and `KF_7F3A_PASSWORD`, so
+the session never waits and a hundred captures never end up as a hundred
+`PASSWORD` or `AQUI_PASSWORD`. Then, in the background, the classifier reads
+the message with every value masked and answers, for each secret and each word,
+whether that word names the service it is for. The credential is renamed to
+the answer in the vault, the env file and the session, and the agent gets the
+new names with its next tool result:
+
+```
+you:   agora com o acesso aqui:
+       ### Cpanel - lojaexemplo.com.br
+       Usuário: lojaadm
+       Senha: ********
+
+at once:        kf/9a4a               KF_9A4A_LOGIN, KF_9A4A_PASSWORD
+seconds later:  lojaexemplo/lojaadm   LOJAEXEMPLO_LOJAADM_LOGIN, LOJAEXEMPLO_LOJAADM_PASSWORD
+```
+
+There is no list of words to skip: every name-shaped word is a candidate and
+the context decides. Words with a digit and anything the session protects never
+go to the classifier in clear. Measured live on messages written the way people
+send them (`node test/naming-eval.js`): 12 of 12 named right, three runs in a
+row, "aqui" never chosen. Without the classifier the name comes from the
+message's structure (a domain in it) or the project, never from a loose word.
+A word that is an account the vault already knows for that service
+("nova senha do robson no sis") makes it a rotation of `sis/robson`.
+
+`keyfence maintain` does the same once for credentials an older version named
+from a loose word, when their message is still in the session logs. Only names
+keyfence generated are renamed; a name you chose is never touched. Every record
+is marked as exposed, since it came through the chat, and `keyfence secret
+list` shows it.
 
 Underneath, keyfence works in three layers.
 
@@ -388,6 +419,8 @@ your `CLAUDE.md` make it behave well from the first turn:
 - ⟨NAME⟩ or ⟨keyfence:rule⟩ in an output is the value hidden on purpose.
 - A [keyfence] denial means a vault read or a literal value leaving. Follow the
   alternative it gives; never work around it.
+- A provisional name (KF_7F3A_PASSWORD) is renamed by keyfence from the message's
+  context within seconds; switch to the new name it sends.
 - If I say I sent a credential and no name came with it, ask me to resend it as
   NAME=value.
 ```
@@ -401,7 +434,10 @@ npm test
 - `test/detect.test.js`: every provider format caught in every one of N random
   rounds (default 50, `ROUNDS=300` for more), 42 negatives taken from real code,
   and the high-entropy layer.
-- `test/hook.test.js`: 99 end-to-end scenarios running the real hook binary
+- `test/whole-value.test.js`: a password with any printable character in any
+  position, in 12 message layouts, is captured whole and loads back through
+  `bash` unchanged; the layouts no reader could settle are listed with the reason.
+- `test/hook.test.js`: 102 end-to-end scenarios running the real hook binary
   inside throwaway git repos: vault reads, capture (names, reuse, `_2`, quotes
   that load back intact, the global fallback), injection that really sets the
   variable in bash, output cleaning of every occurrence, evasion attempts
@@ -416,6 +452,10 @@ npm test
   values and guarding the vault.
 - `test/credential.test.js`: credential records: service, account, which value
   is the login, names, environment, two services in one message.
+- `test/naming.test.js`: naming without the network: the structural fallback,
+  what may be sent to the classifier, a provisional record split between two
+  services, and renaming old captures without touching names you chose.
+  `node test/naming-eval.js` measures the real classifier's choices live.
 - `test/tidy.test.js`: renaming from the original message, recovered logins,
   names code still reads, backups, duplicate merging and the rotation list.
 - `test/discover.test.js`: finding credentials on disk, one record per value,

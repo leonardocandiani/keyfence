@@ -92,6 +92,9 @@ const HEXLIKE = /^(?:[0-9a-f]{16,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 // already says the value is a credential: then a hex or UUID value is a key,
 // not a commit hash.
 const PASSWORD_LABEL = /senha|pass|pwd|contrase|\bpin\b/i;
+// The name of a credential's variable, in the convention keyfence writes them:
+// `senha: SIS_ROBSON_PASSWORD` in a message points at the variable, not a value.
+const ENV_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:PASSWORD|PASS|PWD|TOKEN|KEY|SECRET|LOGIN|URL|PIN)(?:_\d+)?$/;
 
 // A value that is wholly something other than a secret: a reference to one
 // ($VAR, config.db.pass, getPassword()), an identifier or a path.
@@ -101,6 +104,7 @@ function isReference(v) {
     || /^[A-Za-z_$][\w$.]*\(.*\)[;,]?$/.test(v) // call
     || /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+\/?$/.test(v) // lowercase path or alias: service/api
     || /^[#.][a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(v) // CSS selector: #sip-password, .login-field
+    || /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(v) // an env variable's name: KF_7F3A_PASSWORD
     || (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))); // snake_case, UPPER_SNAKE, kebab
 }
 
@@ -112,7 +116,7 @@ function looksSecret(v, labeled = false, message = false) {
   // an example) is left out. In code the word sits in keys, ternaries and
   // comparisons (`'password' : /TOKEN$/.test(n)`), so there the value is judged.
   const passwordLabel = typeof labeled === 'string' && PASSWORD_LABEL.test(labeled);
-  if (passwordLabel && message) return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v);
+  if (passwordLabel && message) return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v) && !ENV_NAME.test(v);
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;

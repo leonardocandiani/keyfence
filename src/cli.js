@@ -271,6 +271,9 @@ async function cmdMaintain(flags) {
   const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
   out.push(`discovered: ${r.discovered.length} new credential(s)${r.discovered.length ? `: ${r.discovered.map((x) => x.alias).join(', ')}` : ''}`);
   out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
+  out.push(r.named.length ? table('named_by_context', ['record', 'now', 'how'], r.named.map((x) => ({ record: x.alias, now: x.to, how: x.action }))) : 'named_by_context: 0 credentials to rename');
+  const prov = r.provisional.flatMap((x) => x.names.map((n) => ({ file: tilde(x.file), name: n })));
+  out.push(prov.length ? table('provisional_removed', ['file', 'name'], prov) : 'provisional_removed: 0 lines');
   const moved = r.synced.filter((x) => x.action !== 'unchanged' && x.action !== 'checked');
   out.push(moved.length ? table('vault', ['alias', 'action'], moved) : `vault: ${r.synced.length} credential(s) in step with their env files`);
   out.push(r.merged.length ? table('merged', ['kept', 'removed'], r.merged) : 'merged: 0 duplicates');

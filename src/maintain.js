@@ -77,12 +77,16 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   const tidied = [];
   for (const f of registered().filter((x) => fs.existsSync(x))) tidied.push(await tidyFile(f, { apply }));
   const synced = await syncVault(apply);
+  const named = await require('./naming').nameOld({ apply });
+  const provisional = require('./naming').cleanProvisional({ apply });
   const dup = await mergeDuplicates(apply);
   const list = vault.list();
   return {
     discovered: found.records.filter((r) => r.action === 'new' || r.action === 'added'),
     tidied,
     synced,
+    named: named.filter((x) => x.to),
+    provisional,
     merged: dup.merged,
     unclear: dup.unclear,
     exposed: list.filter((s) => s.status === 'active' && s.exposed).map((s) => s.alias),

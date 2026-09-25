@@ -45,7 +45,8 @@ function userMessage(line) {
   return ok ? { text: o.message.content, cwd: o.cwd } : null;
 }
 
-// User messages where today's detection recognizes each value as a credential,
+// User messages where today's detection recognizes each value as a credential
+// (the rules for typed messages, or a word the classifier would be asked about),
 // messages from the env file's own project first. A value that is only a word in
 // some message (an old false capture) finds nothing and is left alone.
 function messagesWith(values, root) {
@@ -56,7 +57,7 @@ function messagesWith(values, root) {
       if (!escaped.some((e) => line.includes(e))) continue;
       const msg = userMessage(line);
       if (!msg) continue;
-      const seen = new Set(scan(msg.text).findings.map((f) => f.value));
+      const seen = new Set([...scan(msg.text, { message: true }).findings.map((f) => f.value), ...require('./jev').candidatesOf(msg.text, [], 50)]);
       for (const v of values) if (seen.has(v) && better(msg, found.get(v), root)) found.set(v, msg);
     }
   }
@@ -140,4 +141,4 @@ async function tidyFile(file, { apply = false } = {}) {
   return { file, changes: p.changes, unmatched: p.unmatched, backup };
 }
 
-module.exports = { tidyFile, plan, nameMap, GENERIC };
+module.exports = { tidyFile, plan, nameMap, referenced, messagesWith, GENERIC };

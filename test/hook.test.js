@@ -170,10 +170,21 @@ execFileSync('git', ['init', '-q'], { cwd: sisRepo });
 fs.writeFileSync(path.join(sisRepo, '.gitignore'), '.env\n');
 const digits = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
 const sisPw = `robson${digits(4)}`; // the shape of the real test: a name and digits
+// The capture saves at once under a provisional code; a background job names it
+// from the context (here, without the classifier, from the project: SIS-api)
+// and the agent hears the new names with its next tool result.
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const waitFor = (ok, ms = 10000) => { for (const end = Date.now() + ms; Date.now() < end; sleep(100)) if (ok()) return true; return ok(); };
 const sisNote = run({ hook_event_name: 'UserPromptSubmit', cwd: sisRepo, prompt: `login=robson.silva@empresa.com.br\nsenha=${sisPw}\nteste aí com esse também` }).out;
-const sisEnv = readEnv(path.join(sisRepo, '.env'));
+check('credential: saved at once under a provisional code', /kf\/[0-9a-f]{4}/.test(JSON.stringify(sisNote)) && /KF_[0-9A-F]{4}_PASSWORD/.test(JSON.stringify(sisNote)), true);
+const sisEnvFile = path.join(sisRepo, '.env');
+waitFor(() => readEnv(sisEnvFile).includes('SIS_ROBSON_PASSWORD='));
+const sisEnv = readEnv(sisEnvFile);
 check('credential: login and password saved together under their names', sisEnv.includes('SIS_ROBSON_LOGIN=robson.silva@empresa.com.br') && sisEnv.includes(`SIS_ROBSON_PASSWORD=${sisPw}`), true);
-check('credential: the agent is told the record and the names', /sis\/robson/.test(JSON.stringify(sisNote)) && /SIS_ROBSON_PASSWORD/.test(JSON.stringify(sisNote)), true);
+check('credential: the provisional names still load during the rename (removed by maintain)', /KF_[0-9A-F]{4}_PASSWORD=/.test(sisEnv), true);
+const renamedNote = run({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'ok' } }).out;
+check('credential: the agent is told the record and the names', /sis\/robson/.test(JSON.stringify(renamedNote)) && /SIS_ROBSON_PASSWORD/.test(JSON.stringify(renamedNote)), true);
+check('credential: commands using the new name get the file loaded', JSON.stringify(pre('Bash', { command: 'echo $SIS_ROBSON_PASSWORD' }).out || {}).includes('set -a'), true);
 process.env.KEYFENCE_VAULT_DIR = env.KEYFENCE_VAULT_DIR;
 process.env.KEYFENCE_VAULT_KEY_FILE = env.KEYFENCE_VAULT_KEY_FILE;
 const vaultMod = require('../src/vault');
@@ -182,6 +193,7 @@ check('credential: one record in the vault with both fields', rec1 && rec1.field
 check('credential: marked as exposed (it came through the chat)', rec1 && rec1.exposed, true);
 const sisPw2 = `robson${digits(5)}`;
 run({ hook_event_name: 'UserPromptSubmit', cwd: sisRepo, prompt: `nova senha do robson no sis: senha=${sisPw2}` });
+waitFor(() => (vaultMod.show('sis/robson') || {}).version === 2);
 const rec2 = vaultMod.show('sis/robson');
 check('credential: a new password for the same account rotates the record', rec2 && rec2.version, 2);
 check('credential: rotation keeps the login', rec2 && rec2.fields.includes('login'), true);

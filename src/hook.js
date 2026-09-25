@@ -250,17 +250,26 @@ function note(event, text) {
 // login, password, token, url), store each in the vault and in the env file under
 // names that say whose they are, and return the note for the agent (null when
 // nothing could be saved).
-// `ctx` is { d, prompt, cfg, ttl }: the session, the user's message, config and taint lifetime.
+// `ctx` is { d, prompt, cfg, ttl, background, hidden }: the session, the user's
+// message, config, taint lifetime, whether this runs in a background job, and
+// words that must stay masked when the context is asked for the name. There, the
+// context names the credential before it is saved; in the prompt hook it is
+// saved at once under a provisional code and named right after, in the background.
 async function captureText(ctx, keep, logins = []) {
   const { d, prompt, cfg, ttl } = ctx;
   if (!keep.length) return null;
   try {
-    const { build } = require('./credential');
+    const { build, accountOf, loginIn } = require('./credential');
     const { save } = require('./capture');
+    const naming = require('./naming');
+    const values = keep.map((k) => k.value);
+    const hidden = [...logins, loginIn(prompt, values, logins), ...(ctx.hidden || [])].filter(Boolean);
+    const opts = ctx.background
+      ? naming.asOptions(await naming.decide(prompt, values, hidden, cfg, d.cwd, d.session_id))
+      : { provisional: naming.provisionalId() };
     const lines = [];
-    let known = [];
-    try { known = require('./vault').list().map((x) => x.alias); } catch { /* no vault yet */ }
-    for (const rec of build(prompt, keep, d.cwd, logins, known)) {
+    const pending = [];
+    for (const rec of build(prompt, keep, d.cwd, logins, opts)) {
       const items = Object.entries(rec.fields).map(([role, value]) => ({ value, rule: role, envName: rec.envNames[role] }));
       const r = save(items, prompt, d.cwd, cfg);
       require('./capture').remember(r.file, Object.fromEntries(r.saved.map((x) => [x.name, { alias: rec.alias, role: x.rule, environment: rec.environment }])));
@@ -268,8 +277,14 @@ async function captureText(ctx, keep, logins = []) {
       const stored = await storeInVault(rec, cfg);
       const names = r.saved.map((x) => `${x.rule} $${x.name}${x.reused ? ' (already saved)' : ''}`).join(', ');
       lines.push(`${rec.alias} [${names}] in ${r.project ? "the project's git-ignored" : 'the private'} ${r.file}${stored}`);
+      if (rec.provisional) {
+        pending.push({ alias: rec.alias, file: r.file, environment: rec.environment, account: accountOf(rec.fields.login), fields: rec.fields,
+          names: Object.fromEntries(r.saved.map((x) => [x.rule, x.name])) });
+      }
     }
+    const namingStarted = pending.length > 0 && naming.startNaming(d.session_id, d.cwd, prompt, pending, hidden);
     return `The user's message contains a credential. keyfence saved it as ${lines.join('; ')}. ` +
+      (namingStarted ? 'That name is a provisional code: keyfence is working out from the message which service it is for and will rename it in the vault and the env file; the new names arrive with your next tool result. Until then use these. ' : '') +
       'Work with it by name from now on: reference the variables in commands (keyfence loads them into any Bash command that uses them) or load the file in code. ' +
       'Never repeat a value in replies, code, comments, logs or commit messages.';
   } catch {
@@ -458,7 +473,8 @@ function inject(d, cfg) {
   const list = readState(statePath(d.session_id), cfg.ttlHours * 3600e3);
   const files = [];
   for (const x of list) {
-    if (x.d !== 'store' || !new RegExp(`\\$\\{?${x.n}\\b`).test(cmd)) continue;
+    // $NAME, ${NAME}, ${#NAME}, ${NAME:-x}: every way a command reads the variable.
+    if (x.d !== 'store' || !new RegExp(`\\$\\{?#?${x.n}\\b`).test(cmd)) continue;
     const loads = new RegExp(`(?:^|[;&|\\s])(?:source|\\.)\\s+['"]?[^\\s;&|'"]*${reEscape(path.basename(x.file))}['"]?(?=$|[\\s;&|])`);
     if (!loads.test(cmd) && !files.includes(x.file)) files.push(x.file);
   }

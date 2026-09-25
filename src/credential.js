@@ -65,40 +65,48 @@ function explicitName(item, text) {
   return m[1].toUpperCase().replace(/-/g, '_');
 }
 
-// "senha do robson" and "senha da wavoip" read the same: the vault decides. A
-// subject that is already an account (sis/robson) is that account; one that is
-// already a service stays a service; anything else is taken as the service.
-function placeSubject(subject, known) {
-  if (!subject) return {};
-  const asAccount = known.find((a) => a.split('/')[1] === subject);
-  if (asAccount) return { service: asAccount.split('/')[0], account: subject };
-  return { service: subject };
-}
-
 // FIPE_API_KEY names its service: fipe. PAINEL_PASSWORD: painel.
 function serviceInName(envName) {
   const m = /^([A-Z0-9]+(?:_[A-Z0-9]+)*?)_(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|PASSWORD|SECRET_KEY|SECRET|KEY|PIN)$/.exec(envName || '');
   return m ? slug(m[1]) : '';
 }
 
-function describeItem(item, text, cwd, known) {
+// What an item says about itself. `sure` when the name is certain from the item
+// alone: a name the user wrote, a provider's format, the host of the URL it sits
+// in. Anything else is named from the message's context later (see naming.js);
+// until then the name comes from the message's structure, never a loose word.
+function describeItem(item, text, cwd) {
   const own = explicitName(item, text);
   if (own && serviceInName(own) && !providerOf(item.rule)) {
     const { kind } = cap.kindOf(item, text);
-    return { service: serviceInName(own), role: ROLE[kind] || roleOfName(own), envName: own };
+    return { sure: true, service: serviceInName(own), role: ROLE[kind] || roleOfName(own), envName: own };
   }
   const provider = providerOf(item.rule);
-  if (provider) return { service: provider.service, role: provider.role, envName: explicitName(item, text) || provider.sdk };
+  if (provider) return { sure: true, service: provider.service, role: provider.role, envName: explicitName(item, text) || provider.sdk };
   if (item.rule === 'url-param') {
     const kind = cap.kindOf({ ...item, start: 0 }, `${item.param} `).kind;
-    return { service: slug(cap.hostName(item.host)) || projectName(cwd), role: ROLE[kind === 'SECRET' ? 'API_KEY' : kind] || 'api_key', envName: explicitName(item, text) };
+    return { sure: true, service: slug(cap.hostName(item.host)) || projectName(cwd), role: ROLE[kind === 'SECRET' ? 'API_KEY' : kind] || 'api_key', envName: explicitName(item, text) };
   }
-  const { kind, subject } = cap.kindOf(item, text);
-  const url = (text.match(URL_RE) || [])[0];
-  let host = '';
-  try { host = url ? cap.hostName(new URL(url).hostname) : ''; } catch { /* not a URL */ }
-  const placed = placeSubject(slug(subject), known);
-  return { service: placed.service || slug(host) || projectName(cwd), account: placed.account, role: ROLE[kind] || 'secret', envName: explicitName(item, text) };
+  const { kind } = cap.kindOf(item, text);
+  const at = typeof item.start === 'number' ? item.start : text.indexOf(item.value);
+  return { sure: false, service: structuralName(text, cwd, at), role: ROLE[kind] || 'secret', envName: explicitName(item, text) };
+}
+
+// A domain in the message (cpanel at lojaexemplo.com.br -> lojaexemplo), the one
+// closest to the value; otherwise the project. File names are not domains.
+const DOMAIN = /(?<![@\w.-])(?:https?:\/\/)?((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}))(?![\w-])/gi;
+const TLD = /^(?:com|net|org|io|co|dev|ai|app|gov|edu|info|biz|tech|cloud|site|online|store|xyz|[a-z]{2})$/;
+const FILE_EXT = /^(?:md|js|ts|py|sh|rb|go|rs|db|gz|pg|ex|cs|kt|mm|txt|json|yml|yaml|toml|lock|log)$/;
+function structuralName(text, cwd, at = 0) {
+  let best = null;
+  for (const m of String(text).matchAll(DOMAIN)) {
+    const tld = m[2].toLowerCase();
+    if (!TLD.test(tld) || FILE_EXT.test(tld)) continue;
+    const name = slug(cap.hostName(m[1]));
+    const d = Math.abs(m.index - at);
+    if (name && (!best || d < best.d)) best = { name, d };
+  }
+  return best ? best.name : projectName(cwd);
 }
 
 /**
@@ -107,20 +115,32 @@ function describeItem(item, text, cwd, known) {
  * @param {{value:string, rule:string, start?:number}[]} items secrets found in it
  * @param {string} cwd the session's directory
  * @param {string[]} hintedLogins values the classifier said are the login
- * @param {string[]} known aliases already in the vault (metadata only)
+ * @param {{provisional?: string, services?: Map<string,string>, accounts?: Map<string,string>}} opts
+ *   a provisional code names every item that is not `sure` (kf/<code>,
+ *   KF_<CODE>_PASSWORD); or `services` and `accounts` give each value the service
+ *   and known account its context named
  */
-function build(text, items, cwd, hintedLogins = [], known = []) {
+function build(text, items, cwd, hintedLogins = [], opts = {}) {
   const values = items.map((i) => i.value);
   const login = loginIn(text, values, hintedLogins);
   const url = (text.match(URL_RE) || []).find((u) => !values.some((v) => u.includes(v)));
   const environment = PROD.test(text) ? 'prod' : TEST.test(text) ? 'test' : 'dev';
   const byAlias = new Map();
   for (const item of items) {
-    const d = describeItem(item, text, cwd, known);
-    const account = d.account || (d.role === 'password' || d.role === 'pin' ? accountOf(login) : '');
-    const alias = `${d.service || 'misc'}/${account || 'default'}`;
-    if (!byAlias.has(alias)) byAlias.set(alias, { alias, service: d.service || 'misc', account, environment, fields: {}, envNames: {} });
+    const d = describeItem(item, text, cwd);
+    let service = d.service;
+    let account = d.role === 'password' || d.role === 'pin' ? accountOf(login) : '';
+    if (!d.sure && opts.provisional) {
+      service = 'kf';
+      account = opts.provisional;
+    } else if (!d.sure && opts.services && opts.services.get(item.value)) {
+      service = opts.services.get(item.value);
+      account = account || (opts.accounts && opts.accounts.get(item.value)) || '';
+    }
+    const alias = `${service || 'misc'}/${account || 'default'}`;
+    if (!byAlias.has(alias)) byAlias.set(alias, { alias, service: service || 'misc', account, environment, provisional: !d.sure && Boolean(opts.provisional), sure: true, fields: {}, envNames: {} });
     const rec = byAlias.get(alias);
+    rec.sure = rec.sure && d.sure;
     let role = d.role;
     for (let n = 2; rec.fields[role] !== undefined && rec.fields[role] !== item.value; n++) role = `${d.role}_${n}`;
     rec.fields[role] = item.value;
@@ -140,4 +160,4 @@ function build(text, items, cwd, hintedLogins = [], known = []) {
   return [...byAlias.values()];
 }
 
-module.exports = { build, projectName, accountOf, slug };
+module.exports = { build, projectName, accountOf, loginIn, slug, structuralName, upper };

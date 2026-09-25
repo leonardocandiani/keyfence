@@ -34,7 +34,8 @@ async function run(jobFile) {
   const items = secrets.map((value) => ({ value, rule: 'classifier', start: job.prompt.indexOf(value) }));
   const logins = verdicts.filter((v) => v.login >= cfg.jev.pickThreshold && !secrets.includes(v.value)).map((v) => v.value);
   const d = { session_id: job.sid, cwd: job.cwd };
-  const saved = cfg.promptMode === 'capture' ? await captureText({ d, prompt: job.prompt, cfg, ttl }, items, logins) : null;
+  // Every word the session protects or judged stays masked when naming asks about the message.
+  const saved = cfg.promptMode === 'capture' ? await captureText({ d, prompt: job.prompt, cfg, ttl, background: true, hidden: job.cands }, items, logins) : null;
   pushNotice(job.sid, saved || (cfg.promptMode === 'capture' ? fallbackText('classifier') : WARN_TEXT('classifier')), ttl);
 }
 

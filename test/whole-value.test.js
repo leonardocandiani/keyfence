@@ -75,6 +75,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const HOOK = path.join(__dirname, '..', 'bin', 'keyfence-hook.js');
+const { parseEnv } = require('../src/capture');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'keyfence-whole-'));
 const cfgFile = path.join(tmp, 'config.json');
 fs.writeFileSync(cfgFile, JSON.stringify({ jev: { enabled: false }, capture: { globalFile: path.join(tmp, 'g', 'secrets.env') } }));
@@ -90,13 +91,19 @@ for (let i = 0; i < TRIPS; i++) {
   const prompt = `acesso do painel\n\nUsuário: joao\nSenha: ${v}`;
   spawnSync(process.execPath, [HOOK], { cwd: repo, env, encoding: 'utf8', input: JSON.stringify({ session_id: `whole-${process.pid}-${i}`, hook_event_name: 'UserPromptSubmit', prompt, cwd: repo }) });
   const file = path.join(repo, '.env');
-  const names = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').map((l) => l.split('=')[0]).filter((n) => /PASSWORD$/.test(n)) : [];
+  const passwords = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').map((l) => l.split('=')[0]).filter((n) => /PASSWORD$/.test(n)) : []);
+  // The capture saves a provisional name at once and a background job adds the
+  // real one: wait for it, then every name must load back the exact value, and
+  // keyfence's own reader must agree with bash.
+  for (let t = Date.now(); Date.now() - t < 8000 && !passwords().some((n) => !/^KF_/.test(n));) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  const names = passwords();
   const back = names.map((n) => spawnSync('bash', ['-c', `set -a; . ./.env; set +a; printf %s "$${n}"`], { cwd: repo, encoding: 'utf8' }).stdout);
-  if (back.length === 1 && back[0] === v) { trips++; continue; }
+  const parsed = names.map((n) => parseEnv(fs.readFileSync(file, 'utf8')).get(n));
+  if (names.some((n) => !/^KF_/.test(n)) && back.every((b) => b === v) && parsed.every((p) => p === v)) { trips++; continue; }
   const key = `round trip: ${names.length ? 'came back different' : 'nothing saved'}`;
   fails.set(key, [...(fails.get(key) || []), v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9')]);
 }
-fs.rmSync(tmp, { recursive: true, force: true });
+fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 console.log(`round trip: ${trips}/${TRIPS} saved and loaded back exactly`);
 
 const total = LAYOUTS.length * ROUNDS + TRIPS;

@@ -146,18 +146,11 @@ const LOGIN_Q = 'Is ⟨ID⟩ in `message` the username, login or email used to s
 const PICK = 'Is ⟨ID⟩ in `message` a secret the user is sharing: a password, API key, token or other credential that grants access? '
   + 'Usernames, emails used only as logins, ids, hashes, commit SHAs, plates and codes are not secrets unless the message uses them as the password.';
 
-/**
- * Judge each candidate from its context. Returns [{value, p}], or null when the
- * classifier is unavailable (no key, timeout, error): the caller fails safe.
- */
-async function judge(text, cands, cfg) {
+// One request, many yes/no questions about the same masked message. Returns
+// {id: probability} or null when the classifier is unavailable.
+async function askNoul(message, questions, cfg) {
   const key = apiKey(cfg);
-  if (!key || !cands.length) return null;
-  const questions = {};
-  cands.forEach((c, i) => {
-    questions[`c${i + 1}`] = { type: 'noul', instructions: PICK.replace('ID', `c${i + 1}`) };
-    questions[`l${i + 1}`] = { type: 'noul', instructions: LOGIN_Q.replace('ID', `c${i + 1}`) };
-  });
+  if (!key || !Object.keys(questions).length) return null;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), cfg.jev.jobTimeoutMs || 15000);
   try {
@@ -167,15 +160,14 @@ async function judge(text, cands, cfg) {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: cfg.jev.model,
-        state: { message: maskIds(text.slice(0, 8000), cands), note: 'Values between ⟨ ⟩ were replaced by an id and their shape: a=lowercase, A=uppercase, 9=digit.' },
-        questions,
+        state: { message, note: 'Values between ⟨ ⟩ were replaced by an id and their shape: a=lowercase, A=uppercase, 9=digit.' },
+        questions: Object.fromEntries(Object.entries(questions).map(([id, instructions]) => [id, { type: 'noul', instructions }])),
       }),
     });
     if (!res.ok) return null;
-    const j = await res.json();
-    const a = (j && j.answers) || {};
-    const out = cands.map((value, i) => ({ value, p: a[`c${i + 1}`] && a[`c${i + 1}`].noul, login: (a[`l${i + 1}`] && a[`l${i + 1}`].noul) || 0 }));
-    return out.every((x) => typeof x.p === 'number') ? out : null;
+    const a = ((await res.json()) || {}).answers || {};
+    const out = Object.fromEntries(Object.keys(questions).map((id) => [id, a[id] && a[id].noul]));
+    return Object.values(out).every((p) => typeof p === 'number') ? out : null;
   } catch {
     return null;
   } finally {
@@ -183,4 +175,19 @@ async function judge(text, cands, cfg) {
   }
 }
 
-module.exports = { classify, mask, isCandidate, apiKey, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE };
+/**
+ * Judge each candidate from its context. Returns [{value, p, login}], or null when
+ * the classifier is unavailable (no key, timeout, error): the caller fails safe.
+ */
+async function judge(text, cands, cfg) {
+  if (!cands.length) return null;
+  const questions = {};
+  cands.forEach((c, i) => {
+    questions[`c${i + 1}`] = PICK.replace('ID', `c${i + 1}`);
+    questions[`l${i + 1}`] = LOGIN_Q.replace('ID', `c${i + 1}`);
+  });
+  const a = await askNoul(maskIds(text.slice(0, 8000), cands), questions, cfg);
+  return a && cands.map((value, i) => ({ value, p: a[`c${i + 1}`], login: a[`l${i + 1}`] || 0 }));
+}
+
+module.exports = { classify, mask, isCandidate, apiKey, askNoul, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE };
