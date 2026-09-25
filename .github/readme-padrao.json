@@ -15,6 +15,7 @@
   "badges": [
     "license",
     "claude",
+    "release",
     "ci:test.yml",
     {
       "label": "node",
