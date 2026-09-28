@@ -4,7 +4,7 @@
 // TYPESAFE_API_KEY is set) checks the classifier actually tells disclosure from
 // ordinary talk using shapes alone.
 
-const { mask, classify, isCandidate } = require('../src/jev');
+const { mask, classify, isCandidate, candidatesOf, mayBeSecret, judge } = require('../src/jev');
 const { r } = require('./gen');
 
 const cfg = { jev: { enabled: true, endpoint: 'https://example.invalid', apiKeyEnv: 'KEYFENCE_TEST_KEY', model: 'jev-latest', timeoutMs: 2500, threshold: 0.18 } };
@@ -21,6 +21,21 @@ check('digits with a symbol is a candidate', isCandidate('88776655*'));
 for (const w of ['proteção', 'configuração', 'usuário', 'atualização']) check(`an accented word is not a candidate: ${w}`, !isCandidate(w));
 check('an accented password with digits still is', isCandidate('ação2024!x'));
 check('a file path is not a candidate', !isCandidate('/private/tmp/task-1.output'));
+
+// Dates, times, rates and formatted numbers are data. A message quoting data
+// windows kept them pending for a whole session when the classifier was down.
+for (const w of ['15/03/2024', '28/02/2025', '17/11/23', '2027-04-19', '2027-04-19T08:15:00Z', '08:15:42', '15h30', '12,34%', '7,5%', '4.321', '12.345', '1.234.567,89', '7.000,00', '88,8%']) {
+  check(`data is not a candidate: ${w}`, !isCandidate(w) && !mayBeSecret(w) && !mayBeSecret(w, true));
+}
+for (const w of ['Kq9zPm2x!', '15/03/2024Kq', 'ab15/03/2024', '88776655*', '123.456.789-01']) {
+  check(`a secret-like word is still a candidate: ${w}`, mayBeSecret(w, true));
+}
+check('a digits-only PIN is still a candidate when the message talks about access', mayBeSecret('15032024', true));
+{
+  const msg = 'a senha não entra; janela Moskit de 15/03/2024 a 28/02/2025, 12.345 leads, 7,5% silêncio, 12,34% contra 8,5%, código Kq9zPm2x!';
+  const c = candidatesOf(msg);
+  check('a message with data windows keeps only the real candidate', c.length === 1 && c[0] === 'Kq9zPm2x!');
+}
 
 (async () => {
   // --- masking ---------------------------------------------------------------
@@ -64,6 +79,15 @@ check('a file path is not a candidate', !isCandidate('/private/tmp/task-1.output
     if (p1 === null || p2 === null) live = 'API unavailable, skipped';
     else check('live: disclosure scores higher than ordinary talk', p1 > p2);
   }
+
+  // --- a partial answer settles what it answered --------------------------------
+  global.fetch = async (_url, opts) => {
+    const q = Object.keys(JSON.parse(opts.body).questions);
+    return { ok: true, json: async () => ({ answers: { [q[0]]: { noul: 0.91 } } }) };
+  };
+  const partial = await judge('usa Kq9zPm2x! e Zx7abcde12345 no teste', ['Kq9zPm2x!', 'Zx7abcde12345'], { jev: { ...cfg.jev, jobTimeoutMs: 2000 } });
+  global.fetch = realFetch;
+  check('partial answer: the answered word gets a verdict', Boolean(partial) && partial.length === 1 && partial[0].value === 'Kq9zPm2x!' && partial[0].p === 0.91);
 
   const failed = cases.filter((c) => !c.ok);
   console.log(`jev: ${cases.length - failed.length}/${cases.length} ok | live: ${live}`);

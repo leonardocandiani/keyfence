@@ -9,6 +9,8 @@
 const fs = require('fs');
 const config = require('./config');
 const { judge } = require('./jev');
+
+const RETRY_MS = Number(process.env.KEYFENCE_CLASSIFY_RETRY_MS) || 3000;
 const { hash, statePath, readState, writeState, pushNotice, captureText, fallbackText, WARN_TEXT } = require('./hook');
 
 async function run(jobFile) {
@@ -20,7 +22,13 @@ async function run(jobFile) {
   }
   const cfg = config.load();
   const ttl = cfg.ttlHours * 3600e3;
-  const verdicts = await judge(job.prompt, job.cands, cfg);
+  let verdicts = await judge(job.prompt, job.cands, cfg);
+  // One more try: a single timeout used to leave every word pending for the whole
+  // session, blocking commits of any file that carried one of them.
+  if (!verdicts) {
+    await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+    verdicts = await judge(job.prompt, job.cands, cfg);
+  }
   if (!verdicts) {
     pushNotice(job.sid, `keyfence could not check ${job.cands.length} word(s) of the user's earlier message (classifier unavailable); they stay protected. ` +
       "If one of them is a credential the user shared, save it yourself: write NAME=value into the project's git-ignored .env with the Write tool, " +

