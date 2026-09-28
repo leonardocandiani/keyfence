@@ -29,7 +29,7 @@ const looksLikeIdentifier = (w) => w.startsWith('--') || /^[a-z]+(?:[-_.](?:[a-z
 
 // A word is a candidate if it could plausibly be a credential.
 function isCandidate(w) {
-  if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w)) return false;
+  if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w) || FORMATTED(w)) return false;
   // Accented letters are letters: "proteção" is a word, not a password.
   const letters = /\p{L}/u.test(w);
   const digits = /[0-9]/.test(w);
@@ -98,7 +98,18 @@ async function classify(text, cfg) {
 const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p{L}[\p{L}_-]*[:=]$/u.test(w) || /^https?:\/\//.test(w)
   || /^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(w) || /^\/[a-z0-9._-]+\/?$/.test(w) || /^v?\d+(?:\.\d+)+$/.test(w) || /^\d{1,7}$/.test(w)
   || /^[\w./-]+\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(w)
-  || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w);
+  || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w)
+  || FORMATTED(w);
+
+// Dates, times, percentages and formatted numbers are data, not credentials. A
+// message quoting a data window ("15/03/2024 a 28/02/2025") or a rate ("40,53%")
+// held those words as pending for the whole session when the classifier was down.
+// A digits-only PIN is not affected: mayBeSecret checks it before this runs.
+const FORMATTED = (w) => /^\d{1,2}[/.-]\d{1,2}(?:[/.-](?:\d{2}|\d{4}))?$/.test(w)
+  || /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(w)
+  || /^\d{1,2}(?::\d{2}){1,2}$/.test(w) || /^\d{1,2}h\d{2}$/.test(w)
+  || /^[+-]?\d{1,3}(?:([.,])\d{3})(?:\1\d{3})*(?:[.,]\d{1,2})?%?$/.test(w)
+  || /^[+-]?\d+(?:[.,]\d+)?%$/.test(w) || /^[+-]?\d+,\d{1,2}$/.test(w);
 
 function mayBeSecret(w, cue = false) {
   // A PIN or numeric password is a candidate only when the message talks about access.
@@ -166,8 +177,11 @@ async function askNoul(message, questions, cfg) {
     });
     if (!res.ok) return null;
     const a = ((await res.json()) || {}).answers || {};
-    const out = Object.fromEntries(Object.keys(questions).map((id) => [id, a[id] && a[id].noul]));
-    return Object.values(out).every((p) => typeof p === 'number') ? out : null;
+    // A partial answer still settles what it answered; a word left without an
+    // answer stays pending (protected), instead of the whole batch being dropped.
+    const out = Object.fromEntries(Object.keys(questions).map((id) => [id, a[id] && a[id].noul])
+      .filter(([, p]) => typeof p === 'number'));
+    return Object.keys(out).length ? out : null;
   } catch {
     return null;
   } finally {
@@ -187,7 +201,10 @@ async function judge(text, cands, cfg) {
     questions[`l${i + 1}`] = LOGIN_Q.replace('ID', `c${i + 1}`);
   });
   const a = await askNoul(maskIds(text.slice(0, 8000), cands), questions, cfg);
-  return a && cands.map((value, i) => ({ value, p: a[`c${i + 1}`], login: a[`l${i + 1}`] || 0 }));
+  if (!a) return null;
+  const verdicts = cands.map((value, i) => ({ value, p: a[`c${i + 1}`], login: a[`l${i + 1}`] || 0 }))
+    .filter((v) => typeof v.p === 'number');
+  return verdicts.length ? verdicts : null;
 }
 
 module.exports = { classify, mask, isCandidate, apiKey, askNoul, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE };

@@ -84,7 +84,7 @@ async function decide(text, secrets, hidden, cfg, cwd, sid) {
     const at = text.indexOf(value);
     let service = structuralName(text, cwd, at);
     let by = answers ? 'structure: no word in the message names it' : 'structure: classifier unavailable';
-    const ranked = answers ? words.map((w, j) => ({ w, p: answers[`s${i + 1}w${j + 1}`] })).sort((a, b) => b.p - a.p) : [];
+    const ranked = answers ? words.map((w, j) => ({ w, p: answers[`s${i + 1}w${j + 1}`] })).filter((x) => typeof x.p === 'number').sort((a, b) => b.p - a.p) : [];
     // The name is the word that stands out: sure on its own, or well ahead of every other word.
     const [first, second] = ranked;
     if (first && (first.p >= cfg.jev.pickThreshold || (first.p >= 0.3 && first.p >= 3 * ((second && second.p) || 0)))) {
