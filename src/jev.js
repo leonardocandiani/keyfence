@@ -207,4 +207,4 @@ async function judge(text, cands, cfg) {
   return verdicts.length ? verdicts : null;
 }
 
-module.exports = { classify, mask, isCandidate, apiKey, askNoul, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE };
+module.exports = { classify, mask, isCandidate, apiKey, askNoul, judge, candidatesOf, maskIds, mayBeSecret, worthAsking, CUE, FORMATTED };

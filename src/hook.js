@@ -153,14 +153,32 @@ function vaultHit(text) {
   return null;
 }
 
+// A word still waiting for the classifier never blocks when it is a date, a time
+// or a formatted number: sessions tainted before 0.8.1 held those as pending for
+// hours. A confirmed secret blocks in any shape.
+let formatted = null;
+const isFormatted = (p) => (formatted || (formatted = require('./jev').FORMATTED))(p);
+
 function findTainted(text, list) {
   if (!list.length || !text) return null;
   const byHash = new Map(list.filter((x) => x.h).map((x) => [x.h, x.rule]));
   for (const p of pieces(text)) {
     const rule = byHash.get(hash(p));
-    if (rule) return { rule, shape: shape(p) };
+    if (rule && !(rule === 'pending' && isFormatted(p))) return { rule, shape: shape(p) };
   }
   return null;
+}
+
+// A file marked for holding a pending word counts only while it still holds one
+// that is not a date or a formatted number.
+function stillHoldsPending(file, list) {
+  try {
+    const full = file.replace(/^~(?=\/)/, os.homedir());
+    if (fs.statSync(full).size > 4e6) return true;
+    return Boolean(findTainted(fs.readFileSync(full, 'utf8'), list.filter((y) => y.rule === 'pending')));
+  } catch {
+    return false;
+  }
 }
 
 function mark(sessionId, items, ttlMs) {
@@ -229,7 +247,7 @@ function mentionsFile(text, p) {
 function copyLeaving(text, list, cfg) {
   for (const x of list) {
     if (x.d === 'var' && new RegExp(`\\$\\{?${x.n}\\b`).test(text)) return `${x.rule}, copied into $${x.n}`;
-    if (x.d === 'file' && PATH_LIKE.test(x.n) && mentionsFile(text, x.n)) return `${x.rule}, copied into ${x.n}`;
+    if (x.d === 'file' && PATH_LIKE.test(x.n) && mentionsFile(text, x.n) && (x.rule !== 'pending' || stillHoldsPending(x.n, list))) return `${x.rule}, copied into ${x.n}`;
   }
   for (const [, t] of stripHeredocs(text).matchAll(SENDS_FILE)) {
     if (cfg._vault.some((re) => re.test(t))) return `the content of ${t}`;
