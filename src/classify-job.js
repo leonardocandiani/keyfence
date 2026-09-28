@@ -36,7 +36,7 @@ async function run(jobFile) {
   const d = { session_id: job.sid, cwd: job.cwd };
   // Every word the session protects or judged stays masked when naming asks about the message.
   const saved = cfg.promptMode === 'capture' ? await captureText({ d, prompt: job.prompt, cfg, ttl, background: true, hidden: job.cands }, items, logins) : null;
-  pushNotice(job.sid, saved || (cfg.promptMode === 'capture' ? fallbackText('classifier') : WARN_TEXT('classifier')), ttl);
+  pushNotice(job.sid, saved || (cfg.promptMode === 'capture' ? fallbackText('classifier', cfg) : WARN_TEXT('classifier')), ttl);
 }
 
 // Pending words become protected secrets, stay protected as unclear, or are released.

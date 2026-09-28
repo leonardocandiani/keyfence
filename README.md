@@ -214,6 +214,15 @@ keyfence rules
   without a label it is treated as a commit hash.
 - **Credentials in links**: `?key=`, `?apikey=`, `&token=`, `?access_token=`,
   `?password=` and similar query parameters in any URL.
+- **Credentials by where they sit in a message**, with no label: a token alone
+  on its line under a heading or a name (`### Granola` and the token below it,
+  `Resend - Leonardo` and the token below it), a message that is only the token,
+  a token in a code fence or in `backticks`, `granola: <token>`,
+  `Granola -> <token>`, and a credential word right before it (`a chave do resend
+  é <token>`, `the stripe key is <token>`, `segue o token <token>`). The token
+  must be random (letters mixed with digits or case, 16+ characters); hashes,
+  UUIDs, file names, paths, URLs, e-mails, identifiers and words joined by
+  dashes are left out. Your messages only, never code or files.
 - **High-entropy strings** with no label or known prefix, from your own prompt
   only. Tool output is full of random ids, so this layer does not run there.
 - **Optional classifier** for prose ("the wifi password is abc123"), see below.
@@ -246,7 +255,9 @@ No text-based guard is complete, and this one says where it is blind:
 - **A password with no word around it.** "log in with leo and x7!kq92" has no
   label, no known format and no access word, so nothing catches it. When a
   message does carry a credential keyfence cannot isolate, the agent is told to
-  save it to `.env` itself and carry on; you are never asked to send it again.
+  save it itself (to the file keyfence would use) and carry on; you are never
+  asked to send it again. With `capture.unlabeled: "save"`, keyfence saves such a
+  random word itself under a provisional code instead.
 - **Quotes, `;` or `,` in the first 8 characters of a password** end the value
   before the label rule can read it. Without the classifier nothing catches it;
   store such a value in `.env` yourself.
@@ -265,7 +276,7 @@ Optional, at `~/.config/keyfence/config.json` (or the path in
 ```json
 {
   "promptMode": "capture",
-  "capture": { "target": "project", "globalFile": "~/.config/keyfence/secrets.env", "inject": true },
+  "capture": { "target": "project", "globalFile": "~/.config/keyfence/secrets.env", "inject": true, "unlabeled": "agent" },
   "redactOutput": true,
   "ttlHours": 12,
   "taintAmbiguousFromPrompt": true,
@@ -279,7 +290,10 @@ Optional, at `~/.config/keyfence/config.json` (or the path in
 ```
 
 `promptMode` is `capture` (save and go on), `warn` (only protect) or `block`
-(refuse the message). `keyfence config` shows what is in effect.
+(refuse the message). `capture.unlabeled` decides a random word no rule,
+label or position settled, when the classifier is not there to judge it:
+`agent` (the default) tells the agent to save it, `save` has keyfence save it at
+once under a provisional code. `keyfence config` shows what is in effect.
 
 ## The optional classifier
 

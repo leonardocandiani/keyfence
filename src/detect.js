@@ -3,6 +3,9 @@
 //   1. provider rules (rules.js): known shapes, high confidence
 //   2. labeled values: `token=...`, `"password": "..."`, `senha: ...` with an
 //      entropy floor and a placeholder filter, medium confidence
+//   2b. in a message only: a token placed where a person puts a credential
+//      (alone under a heading or a name, in backticks, after "<name>:" or after
+//      "a chave é"), medium confidence
 //   3. ambiguous candidates: long high-entropy strings with no label and no
 //      known prefix, low confidence. Returned separately; the caller decides
 //      what to do with them (keyfence only taints them when they come from the
@@ -299,6 +302,122 @@ function scanAmbiguous(text, taken) {
   return out;
 }
 
+// Credentials a person sends without a keyword label: the way they arrive in a
+// chat. Only for what a person typed (message mode); code and files keep the
+// three layers above. Each profile is a position that says "this is the value":
+//   line     a token alone on its line, under a heading or a name
+//            ("### Granola" / "Resend - Leonardo" and the token below it),
+//            inside a code fence, or a message that is only the token
+//   inline   a token in `backticks`
+//   named    "<name>: <token>", "<name> - <token>", "<name> -> <token>" at the
+//            end of the line, where the name is a service or a short phrase
+//   cue      "a chave do resend é <token>", "the stripe key is <token>",
+//            "segue o token <token>": a credential word, a verb, the value
+// A token here is at least 16 characters, letters mixed with digits or case,
+// random enough, and not a hash, id, path, URL, e-mail or file name.
+const CONTEXT_TOKEN = /[A-Za-z0-9_\-+/=.~]{16,512}/g;
+const CUE_WORD = /\b(?:token|tokens|chave|key|keys|apikey|api|senha|password|pass|secret|segredo|credencial|credential|acesso|access|bearer|pat)\b/i;
+// JS `\b` is ASCII only, so "é" needs its own boundary: (?<![\p{L}\d]) and (?![\p{L}\d]).
+const CUE_NAMES = 'token|tokens|chave|key|apikey|senha|password|secret|segredo|credencial|credential|acesso|access|bearer|pat';
+const CUE_BEFORE = new RegExp(
+  // "a chave do resend é X", "the stripe key is X", "token: X", "chave -> X"
+  `(?<![\\p{L}\\d])(?:${CUE_NAMES})(?![\\p{L}\\d])[^\\n]{0,60}?(?:(?<![\\p{L}\\d])(?:é|eh|e|is|são|sao|fica|vai|segue|aqui|abaixo|below|here)(?![\\p{L}\\d])|[:=]|->|→)\\s*["'\`]?$`
+  // "segue o token X", "usa a key X": the credential word right before the value
+  + `|(?<![\\p{L}\\d])(?:${CUE_NAMES})\\s*["'\`]?$`,
+  'iu',
+);
+const NAME_BEFORE = /(?:^|\n)[ \t>*•-]*([^\n:=`]{1,48}?)[ \t]*(?::|=|->|→|–|—| - )[ \t]*["'`]?$/;
+const FILE_NAME = /\.(?:pdf|png|jpe?g|gif|webp|mp[34]|wav|ogg|zip|csv|xlsx?|docx?|pptx?|txt|md|json|ya?ml|js|ts|py|sh|html?)$/i;
+const EMAIL = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+const WORDLIKE = /^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+|\d{1,4}|v\d+)$/;
+
+function contextToken(v, cued) {
+  if (v.length < 16 || PLACEHOLDER.test(v) || EMAIL.test(v) || FILE_NAME.test(v)) return false;
+  if (/^[a-z]+:\/\//i.test(v) || /^[./~]/.test(v) || /\/.*\//.test(v)) return false;
+  if (HEXLIKE.test(v)) return !!cued; // a commit hash or an id, unless the words say key
+  // Words joined by separators (relatorio-final-2026, user_id_42, config.db.host)
+  // are names, not keys: a key has at least one run that is not a word.
+  const runs = v.split(/[-_.+/=~]+/).filter(Boolean);
+  if (runs.every((w) => WORDLIKE.test(w))) return false;
+  const odd = runs.filter((w) => !WORDLIKE.test(w));
+  const randomRun = odd.join('').length >= 10 && odd.some((w) => /\d/.test(w) || caseSwitches(w) >= 4);
+  // A dotted token (header.payload) matches the member-access shape of isReference.
+  if (benignShape(v) || (isReference(v) && !randomRun)) return false;
+  if (!/[A-Za-z]/.test(v) || !randomRun) return false;
+  return entropy(v) >= 3.3 && classes(v) >= 2;
+}
+
+function lineAround(text, start, end) {
+  const a = text.lastIndexOf('\n', start - 1) + 1;
+  let b = text.indexOf('\n', end);
+  if (b < 0) b = text.length;
+  return { a, b, line: text.slice(a, b) };
+}
+
+// A line that holds only the value, maybe wrapped in quotes, backticks, a bullet
+// or a quote marker.
+function aloneOnLine(line, v) {
+  return line.replace(/^\s*(?:[>*•-]\s+)*/, '').replace(/^["'`]+|["'`]+$/g, '').trim() === v;
+}
+
+function previousLine(text, a) {
+  const before = text.slice(0, a).split('\n').map((l) => l.trim()).filter(Boolean);
+  return before.length ? before[before.length - 1] : '';
+}
+
+function profileOf(text, v, start, end) {
+  const { a, b, line } = lineAround(text, start, end);
+  const before = text.slice(a, start);
+  const after = text.slice(end, b).replace(/^["'`]/, '').trim();
+  const prev = previousLine(text, a);
+  const onlyToken = text.trim().replace(/^["'`]+|["'`]+$/g, '') === v;
+  if (aloneOnLine(line, v)) {
+    if (onlyToken) return { profile: 'line', cued: false };
+    if (prev && !/^```/.test(prev)) return { profile: 'line', cued: CUE_WORD.test(prev) };
+    const fenceHead = text.slice(0, a).split('\n').map((l) => l.trim()).filter(Boolean);
+    if (fenceHead.length >= 2) return { profile: 'line', cued: CUE_WORD.test(fenceHead[fenceHead.length - 2]) };
+    return null;
+  }
+  if (text[start - 1] === '`' && text[end] === '`') return { profile: 'inline', cued: CUE_WORD.test(line) };
+  if (after && !/^[.,;!?)]*$/.test(after)) {
+    // The value sits in running text: only a credential word right before it says so.
+    return CUE_BEFORE.test(before) ? { profile: 'cue', cued: true } : null;
+  }
+  if (CUE_BEFORE.test(before)) return { profile: 'cue', cued: true };
+  const named = NAME_BEFORE.exec(text.slice(0, start));
+  if (named && named[1].trim().split(/\s+/).length <= 6) return { profile: 'named', cued: CUE_WORD.test(named[1]) };
+  return null;
+}
+
+function scanContextual(text, taken) {
+  const out = [];
+  CONTEXT_TOKEN.lastIndex = 0;
+  let m;
+  while ((m = CONTEXT_TOKEN.exec(text))) {
+    // Only sentence punctuation comes off the edges: - _ = + end real keys (base64).
+    const value = m[0].replace(/^[./~]+|[./~]+$/g, '');
+    const start = m.index + m[0].indexOf(value);
+    const end = start + value.length;
+    if (taken.some((f) => start < f.end && f.start < end)) continue;
+    // The value is a whole word: a piece of a longer one (an URL, an e-mail, a path,
+    // a password with symbols the pattern leaves out) is not a value of its own.
+    const prev = text[start - 1] || '';
+    const next = text.slice(end, end + 2);
+    if (prev && !/[\s"'`(>]/.test(prev)) continue;
+    if (next && !/^(?:[\s"'`)]|[.,;:!?](?:\s|$))/.test(next)) continue;
+    // Quotes, backticks and parentheses count as an edge only in pairs: `value`,
+    // "value", (value). An unpaired one is a symbol inside a longer password.
+    const pair = { '"': '"', "'": "'", '`': '`', '(': ')' };
+    const opens = pair[prev];
+    const closes = /["'`)]/.test(next[0] || '');
+    if ((opens || closes) && opens !== next[0]) continue;
+    const p = profileOf(text, value, start, end);
+    if (!p || !contextToken(value, p.cued)) continue;
+    out.push({ rule: 'contextual', name: `Credential by context (${p.profile})`, value, start, end, confidence: 'medium', profile: p.profile });
+  }
+  return out;
+}
+
 // Most specific wins when two findings overlap: provider > labeled > ambiguous,
 // then the longer match.
 const RANK = { high: 3, medium: 2, low: 1 };
@@ -321,7 +440,8 @@ function resolve(findings) {
 function scan(text, opts = {}) {
   if (!text || typeof text !== 'string') return { findings: [], ambiguous: [] };
   const lower = text.toLowerCase();
-  const findings = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanUrlParams(text)]);
+  const known = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanUrlParams(text)]);
+  const findings = opts.message ? resolve([...known, ...scanContextual(text, known)]) : known;
   const ambiguous = opts.ambiguous ? scanAmbiguous(text, findings) : [];
   return { findings, ambiguous };
 }
@@ -344,4 +464,4 @@ function redact(text, found) {
   return out + text.slice(i);
 }
 
-module.exports = { scan, shape, redact, entropy, looksSecret, edgeOf };
+module.exports = { scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };

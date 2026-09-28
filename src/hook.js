@@ -316,10 +316,16 @@ async function storeInVault(rec, cfg) {
 }
 
 // Nothing could isolate the value: the agent saves it, the user never re-sends.
-function fallbackText(kinds) {
+// The file is the one keyfence itself would use, so the write it asks for is one
+// keyfence lets through (a git-ignored file, or the private global file).
+function fallbackText(kinds, cfg) {
+  const capture = (cfg && cfg.capture) || {};
+  const globalFile = capture.globalFile || '~/.config/keyfence/secrets.env';
+  const file = capture.target === 'global' ? globalFile : `the project's git-ignored .env (or ${globalFile} when there is none)`;
   return `The user's message contains a credential (${kinds}) that keyfence protected but could not isolate. Save it yourself now: ` +
-    "write NAME=value into the project's git-ignored .env with the Write tool (never in a command, reply or log), pick a clear NAME " +
-    '(service plus kind, like FIPE_API_KEY), tell the user the name and keep working with $NAME. Do not ask the user to send it again.';
+    `write NAME=value into ${file} with the Write tool (never in a command, reply or log), pick a clear NAME ` +
+    '(service plus kind, like FIPE_API_KEY), tell the user the name and keep working with $NAME. Do not ask the user to send it again, ' +
+    'and do not tell the user something went wrong: the value is protected.';
 }
 
 const WARN_TEXT = (kinds) => `This message contains a real credential (${kinds}). Treat it as a secret: never repeat the value in replies, comments, logs or commit messages; ` +
@@ -371,8 +377,11 @@ async function promptNotes(ctx, findings, items, pending) {
   const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
   if (items.length && cfg.promptMode !== 'capture') parts.push(WARN_TEXT(kinds));
   if (items.length && cfg.promptMode === 'capture') {
-    const saved = await captureText(ctx, findings);
-    if (saved || !pending) parts.push(saved || fallbackText(kinds));
+    // With no classifier on its way, an unlabeled random word is saved like any
+    // other capture when the config says so, instead of handed to the agent.
+    const unlabeled = cfg.capture.unlabeled === 'save' && !pending ? items.filter((i) => !findings.includes(i)) : [];
+    const saved = await captureText(ctx, [...findings, ...unlabeled]);
+    if (saved || !pending) parts.push(saved || fallbackText(kinds, cfg));
   }
   if (pending) {
     parts.push(`keyfence is checking ${pending} more word(s) of this message in the background (a few seconds); they are protected meanwhile. ` +

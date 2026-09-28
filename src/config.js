@@ -20,6 +20,12 @@ const DEFAULTS = {
     globalFile: '~/.config/keyfence/secrets.env',
     // Load captured variables into a Bash command that references them.
     inject: true,
+    // A long random word in the message that no rule, label or position settled,
+    // when the classifier is not there to decide:
+    //   "agent" -> the agent is told to save it itself (the default)
+    //   "save"  -> keyfence saves it at once under a provisional code, like any
+    //              other capture, and names it from the message in the background
+    unlabeled: 'agent',
   },
   // Replace remembered secrets in tool output before the agent sees it.
   redactOutput: true,

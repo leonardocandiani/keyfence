@@ -180,8 +180,30 @@ check('names: fipe-api-key= keeps its label', nameOf(`fipe-api-key=${hex32()}`),
 check('names: "Login SIS" + "Senha:" becomes SIS_PASSWORD', nameOf(`### Login SIS:\n\nEmail: a@b.com\nSenha: ${PW}`), 'SIS_PASSWORD');
 check('names: a bare "senha:" is PASSWORD, not SENHA', nameOf(`senha: ${PW}`), 'PASSWORD');
 check('names: "login do painel ... senha" becomes PAINEL_PASSWORD', nameOf(`o login do painel é leo e a senha: ${PW}`), 'PAINEL_PASSWORD');
-const fb = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `usa isso: ${gen('github').slice(4)}Zq9x` }).out;
+// A token sent the way people send it, with no keyword label: a heading with the
+// service and the token on the line below (the Granola message of 25/09/2026).
+const granolaTok = `${gen('github').slice(4)}Zq9x`;
+const gr = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `### Granola\n${granolaTok}` }).out;
+check('profiles: a token under a heading is saved, not handed to the agent', readEnv(capEnv).includes(granolaTok), true);
+check('profiles: the agent hears it was saved', /keyfence saved it/.test(JSON.stringify(gr)), true);
+check('profiles: the context never echoes the value', JSON.stringify(gr).includes(granolaTok), false);
+// A random word in running text with no cue stays ambiguous: by default the agent
+// is told to save it, into a file keyfence lets it write.
+const loose = `${gen('github').slice(4)}Zq9x`;
+const fb = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `rodei com ${loose} ontem` }).out;
 check('fallback: when nothing is saved, the agent saves it itself instead of asking again', /Do not ask the user to send it again/.test(JSON.stringify(fb)), true);
+check('fallback: the agent is told not to report a failure', /do not tell the user something went wrong/.test(JSON.stringify(fb)), true);
+check('fallback: nothing was saved by keyfence', readEnv(capEnv).includes(loose), false);
+fs.writeFileSync(cfgFile, JSON.stringify({ ...BASE, capture: { ...BASE.capture, target: 'global' } }));
+const fbGlobal = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `rodei com ${gen('github').slice(4)}Zq9x ontem` }).out;
+check('fallback: with target "global" the agent is pointed at the global file', JSON.stringify(fbGlobal).includes(globalEnv), true);
+// capture.unlabeled "save": keyfence saves it itself under a provisional code.
+fs.writeFileSync(cfgFile, JSON.stringify({ ...BASE, capture: { ...BASE.capture, unlabeled: 'save' } }));
+const saveTok = `${gen('github').slice(4)}Zq9x`;
+const sv = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `rodei com ${saveTok} ontem` }).out;
+check('unlabeled "save": the random word is saved by keyfence', readEnv(capEnv).includes(saveTok), true);
+check('unlabeled "save": no fallback text', /Save it yourself/.test(JSON.stringify(sv)), false);
+fs.writeFileSync(cfgFile, JSON.stringify(BASE));
 // --- credential records: the SIS test, as the user sent it ------------------
 const sisRepo = path.join(tmp, 'SIS-api');
 fs.mkdirSync(sisRepo);
