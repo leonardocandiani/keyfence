@@ -395,15 +395,23 @@ function scanContextual(text, taken) {
   let m;
   while ((m = CONTEXT_TOKEN.exec(text))) {
     // Only sentence punctuation comes off the edges: - _ = + end real keys (base64).
-    const value = m[0].replace(/^[./~]+|[./~]+$/g, '');
-    const start = m.index + m[0].indexOf(value);
+    let value = m[0].replace(/^[./~]+|[./~]+$/g, '');
+    let start = m.index + m[0].indexOf(value);
+    // `MOSKIT_API_KEY_PROD=<key>`: an `=` followed by more characters is an
+    // assignment, never base64 padding (that only closes a key). The value is the
+    // right side; the name on the left is what nameFor reads to name it.
+    const assign = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+=(?=[^=])/.exec(value);
+    if (assign) {
+      value = value.slice(assign[0].length);
+      start += assign[0].length;
+    }
     const end = start + value.length;
     if (taken.some((f) => start < f.end && f.start < end)) continue;
     // The value is a whole word: a piece of a longer one (an URL, an e-mail, a path,
     // a password with symbols the pattern leaves out) is not a value of its own.
     const prev = text[start - 1] || '';
     const next = text.slice(end, end + 2);
-    if (prev && !/[\s"'`(>]/.test(prev)) continue;
+    if (prev && !assign && !/[\s"'`(>]/.test(prev)) continue;
     if (next && !/^(?:[\s"'`)]|[.,;:!?](?:\s|$))/.test(next)) continue;
     // Quotes, backticks and parentheses count as an edge only in pairs: `value`,
     // "value", (value). An unpaired one is a symbol inside a longer password.
