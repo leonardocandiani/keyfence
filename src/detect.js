@@ -365,6 +365,18 @@ function previousLine(text, a) {
   return before.length ? before[before.length - 1] : '';
 }
 
+// A UUID alone on its line under a title or a short service name ("### Moskit
+// Proteauto", "Asaas produção") is how people paste an API key: many services
+// issue keys as UUIDs. A bare hex run (commit hash) stays out, and so does a
+// line that names an id ("o id do pedido é").
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ID_WORD = /(?<![\p{L}\d])(?:id|ids|uuid|guid|pedido|order|request|trace|sess[aã]o|session|commit|hash|protocolo)(?![\p{L}\d])/iu;
+function titledUuid(v, prev) {
+  if (!UUID.test(v) || ID_WORD.test(prev)) return false;
+  const title = prev.replace(/^#{1,6}\s+/, '').replace(/[:\s]+$/, '');
+  return /^#{1,6}\s+\S/.test(prev) || (title.split(/\s+/).length <= 5 && !/[.!?]$/.test(title));
+}
+
 function profileOf(text, v, start, end) {
   const { a, b, line } = lineAround(text, start, end);
   const before = text.slice(a, start);
@@ -373,7 +385,7 @@ function profileOf(text, v, start, end) {
   const onlyToken = text.trim().replace(/^["'`]+|["'`]+$/g, '') === v;
   if (aloneOnLine(line, v)) {
     if (onlyToken) return { profile: 'line', cued: false };
-    if (prev && !/^```/.test(prev)) return { profile: 'line', cued: CUE_WORD.test(prev) };
+    if (prev && !/^```/.test(prev)) return { profile: 'line', cued: CUE_WORD.test(prev) || titledUuid(v, prev) };
     const fenceHead = text.slice(0, a).split('\n').map((l) => l.trim()).filter(Boolean);
     if (fenceHead.length >= 2) return { profile: 'line', cued: CUE_WORD.test(fenceHead[fenceHead.length - 2]) };
     return null;

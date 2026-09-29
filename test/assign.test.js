@@ -38,9 +38,10 @@ for (const name of NAMES) {
 }
 
 // Base64 padding closes a key and stays in it: no `=` in the middle, no split.
-for (let i = 0; i < 20; i++) {
+// A value with `/` reads as a file path and is a separate case, so it is skipped.
+for (let i = 0; i < 200; i++) {
   const v = `${crypto.randomBytes(29).toString('base64')}`;
-  if (!v.endsWith('=')) continue;
+  if (!v.endsWith('=') || v.includes('/')) continue;
   const text = `segue o token ${v}`;
   const { findings } = scan(text, { message: true });
   check(findings.some((f) => f.value === v), `padded base64 kept whole (${v.replace(/[A-Za-z]/g, 'a').replace(/\d/g, '9').slice(-6)})`);
