@@ -23,7 +23,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
-const { scan, shape } = require('./detect');
+const { scan, shape, presignedSpans, maskPresigned } = require('./detect');
 const config = require('./config');
 const { WIN, slash, renameRetry } = require('./fsmode');
 
@@ -500,6 +500,9 @@ function judge(d, cfg) {
 
   if (cfg.egress.blockNewSecretsInTrackedFiles && file && text && !/\.(example|sample|template)$/.test(file)) {
     const f = scan(text).findings.find((x) => x.confidence === 'high');
+    if (!f && presignedSpans(text).length && gitTracks(file)) {
+      return deny(`This write puts a pre-signed storage URL into ${file}, which git tracks. The link is a temporary grant: keep it out of the repository.`);
+    }
     if (f && gitTracks(file)) {
       return deny(`This write puts a ${f.name} (${shape(f.value)}) into ${file}, which git tracks. Read it from an environment variable or a git-ignored file instead.`);
     }
@@ -548,7 +551,11 @@ function onPostTool(d, cfg) {
   const text = typeof r === 'string' ? r : JSON.stringify(r || '');
   if (!text) return;
   const ttl = cfg.ttlHours * 3600e3;
-  const { findings } = scan(text.slice(0, MAX_SCAN));
+  // A pre-signed download link in tool output is the short-lived grant the agent
+  // is meant to use, so it passes whole. Writing it to a tracked file is still
+  // denied (see judge).
+  const scanned = text.slice(0, MAX_SCAN);
+  const findings = scan(maskPresigned(scanned)).findings;
   const added = findings.length ? taint(d.session_id, findings, `tool:${d.tool_name}`, ttl) : 0;
 
   // Values to hide: new findings, plus any piece whose hash is remembered.
