@@ -211,7 +211,17 @@ keyfence rules
   placeholders (`${VAR}`, `<your-token>`, `changeme`), code (`options.apiKey`,
   `getToken(`), identifiers, aliases (`billing/api`), CSS selectors and default
   passwords. A lowercase hex or UUID value counts when a label says it is a key;
-  without a label it is treated as a commit hash.
+  without a label it is treated as a commit hash. A value of letters only, under
+  16 characters, is a word or a product name (`GitHub`, `YouTube`, `PostgreSQL`)
+  and never a key, whatever the label says; the one exception is an explicit
+  password label (`senha: flamengo`, `DB_PASSWORD=flamengo`), where a word is
+  the password. The same cut applies before the classifier: a CamelCase word under
+  16 letters is no longer sent to it just for switching case (random letters
+  still go by entropy). The trade-off, measured on random mixed-case letters: a
+  key of letters only, with no digit or symbol, now goes unseen under a label at
+  15 characters or fewer, and reaches the classifier 0% of the time at 8 to 10
+  characters, 25% at 12 and 77% at 14, against 96% to 100% before. Real keys are
+  longer or carry a digit.
 - **Credentials in links**: `?key=`, `?apikey=`, `&token=`, `?access_token=`,
   `?password=` and similar query parameters in any URL.
 - **Credentials by where they sit in a message**, with no label: a token alone
@@ -395,6 +405,12 @@ keyfence maintain --install  # run `maintain --apply` every day at 09:30 (launch
   Sources are never changed, a record is never overwritten with another value,
   and a value seen in a past session is marked for rotation. The daily
   `maintain` runs it too, so new projects are picked up on their own.
+- **False captures leave the vault.** `maintain --apply` removes a record whose
+  every field is a short CamelCase or plain word (every piece two letters or
+  more) stored as `api_key`, `token` or `secret` (an old version captured product
+  names that way), and stops the env file that fed it
+  from adding it back. Passwords, logins, anything with a digit or a symbol and
+  any record with a policy are never touched; the env file itself is not changed.
 - **Duplicates merge.** The same value under `sis/default` and `sis/robson` keeps
   the specific record; any other duplicate is only reported.
 - **What needs you is listed.** Secrets that went through a chat (rotate them)
@@ -476,6 +492,9 @@ npm test
 - `test/discover.test.js`: finding credentials on disk, one record per value,
   every place kept, public keys and examples skipped, exposure, never
   overwriting a record.
+- `test/palavra-comum.test.js`: product names and common words under a key
+  label are not credentials, real keys and explicit passwords still are, and
+  `maintain` removes the old false captures without touching anything else.
 - `test/cli.test.js`: CLI contract.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.

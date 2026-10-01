@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const os = require('os');
-const { shape, entropy, edgeOf } = require('./detect');
+const { shape, entropy, edgeOf, LETTERS_ONLY_MIN } = require('./detect');
 
 function apiKey(cfg) {
   if (process.env[cfg.jev.apiKeyEnv]) return process.env[cfg.jev.apiKeyEnv];
@@ -117,7 +117,10 @@ function mayBeSecret(w, cue = false) {
   if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w)) return false;
   const digits = /[0-9]/.test(w);
   const symbols = /[^\p{L}\p{N}]/u.test(w);
-  const mixedCase = /\p{Ll}\p{Lu}|\p{Lu}\p{Ll}+\p{Lu}/u.test(w);
+  // CamelCase alone does not make a short word a candidate: product names
+  // (LinkedIn, TikTok) are letters-only and switch case. Random letters still
+  // get there by entropy.
+  const mixedCase = (digits || symbols || w.length >= LETTERS_ONLY_MIN) && /\p{Ll}\p{Lu}|\p{Lu}\p{Ll}+\p{Lu}/u.test(w);
   return digits || symbols || mixedCase || entropy(w) >= 3.5;
 }
 

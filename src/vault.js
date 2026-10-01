@@ -223,6 +223,37 @@ function remove(alias) {
   return true;
 }
 
+/**
+ * Remove every secret whose fields `isFalse(field, value)` all reject, for
+ * secrets that were captured by a rule since tightened. A secret with a policy
+ * (someone allowed it to do something) stays. Values are opened here and wiped;
+ * only aliases come out. Returns the aliases, removed only with `apply`.
+ */
+function removeWhere(isFalse, apply = false) {
+  const v = load();
+  const candidates = Object.entries(v.secrets).filter(([, s]) => Object.keys(s.fields).length && !(s.policy && s.policy.operations && s.policy.operations.length));
+  if (!candidates.length) return [];
+  const key = masterKey(false);
+  if (!key) throw new Error('vault key not found');
+  const gone = [];
+  try {
+    for (const [alias, s] of candidates) {
+      const all = Object.entries(s.fields).every(([name, box]) => {
+        const buf = open(key, alias, name, s.version, box);
+        try { return isFalse(name, buf.toString()); } finally { buf.fill(0); }
+      });
+      if (all) gone.push(alias);
+    }
+  } finally {
+    key.fill(0);
+  }
+  if (apply && gone.length) {
+    for (const alias of gone) delete v.secrets[alias];
+    save(v);
+  }
+  return gone;
+}
+
 function setPolicy(alias, policy) {
   const v = load();
   const s = v.secrets[alias];
@@ -323,4 +354,4 @@ function fingerprints() {
   }
 }
 
-module.exports = { add, upsert, move, rotate, duplicates, revoke, reactivate, remove, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
+module.exports = { add, upsert, move, rotate, duplicates, revoke, reactivate, remove, removeWhere, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };

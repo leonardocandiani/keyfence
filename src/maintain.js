@@ -12,6 +12,7 @@ const { execFileSync } = require('child_process');
 const vault = require('./vault');
 const { tidyFile } = require('./tidy');
 const { registered } = require('./capture');
+const { looksSecret } = require('./detect');
 
 const DAY = 86400e3;
 const STALE_DAYS = 90;
@@ -31,6 +32,33 @@ async function mergeDuplicates(apply) {
     merged.push({ kept: specific.join(','), removed: leftovers.join(',') });
   }
   return { merged, unclear };
+}
+
+// Credentials captured by a rule that has since been tightened: a short word
+// stored as an api_key, token or secret (GitHub, YouTube). Passwords, logins
+// and anything with a digit or a symbol are never judged here.
+const KEY_ROLE = /^(?:api_key|token|secret)(?:_\d+)?$/;
+// Every CamelCase piece is a syllable-sized word (Whats|App, Linked|In), which
+// random letters rarely are: a short random key captured before stays.
+const wordLike = (v) => v.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).every((p) => p.length >= 2);
+const isCommonWord = (field, value) => KEY_ROLE.test(field) && /^[A-Za-z]{1,15}$/.test(value) && wordLike(value) && !looksSecret(value, field);
+
+// The env files that fed those records stop feeding them back (syncVault).
+function dropFalsePositives(apply) {
+  const { readRegistry, remember } = require('./capture');
+  let dropped = [];
+  try {
+    dropped = vault.removeWhere(isCommonWord, apply);
+  } catch (e) {
+    process.stderr.write(`maintain: could not check the vault for common words (${e.message.slice(0, 60)})\n`);
+  }
+  if (apply && dropped.length) {
+    for (const [file, map] of Object.entries(readRegistry().names)) {
+      const names = Object.keys(map).filter((n) => dropped.includes(map[n].alias));
+      if (names.length) remember(file, {}, names);
+    }
+  }
+  return dropped;
 }
 
 // Bring the vault up to date with the env files: a credential missing from the
@@ -71,6 +99,7 @@ const expandHome = (p, home) => p.replace(/^~(?=\/|$)/, home);
 
 async function maintain({ apply = false, roots = null, home = os.homedir() } = {}) {
   const { discover } = require('./discover');
+  const falsePositives = dropFalsePositives(apply);
   const cfg = require('./config').load().discover;
   const where = roots || cfg.roots.map((r) => expandHome(r, home)).filter((r) => fs.existsSync(r));
   const found = await discover({ roots: where, depth: cfg.depth, home, apply });
@@ -82,6 +111,7 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   const dup = await mergeDuplicates(apply);
   const list = vault.list();
   return {
+    falsePositives,
     discovered: found.records.filter((r) => r.action === 'new' || r.action === 'added'),
     tidied,
     synced,
@@ -130,4 +160,4 @@ function uninstall() {
   return had;
 }
 
-module.exports = { maintain, install, uninstall, LABEL };
+module.exports = { isCommonWord, maintain, install, uninstall, LABEL };
