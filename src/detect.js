@@ -88,6 +88,10 @@ function caseSwitches(v) {
 // Common weak or default passwords that appear in examples and install scripts.
 const DEFAULTS = /^(?:password|passw0rd|postgres|mysql|root|admin|administrator|secret|changeme|senha|default|guest|user|test|pass|qwerty|letmein|welcome|12345678|123456789|p@ssw0rd)$/i;
 
+// Letters-only values shorter than this are never a credential by shape alone:
+// only an explicit password label (`senha: X`) makes one.
+const LETTERS_ONLY_MIN = 16;
+
 // Does a captured value look like a real secret rather than code or prose?
 const HEXLIKE = /^(?:[0-9a-f]{16,128}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
@@ -143,6 +147,9 @@ function looksSecret(v, labeled = false, message = false) {
     if (passwordLabel) return v.length >= 6;
     // A word (word, Word, WORD) is not a secret; random letters switch case often.
     if (/^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+)$/.test(v)) return false;
+    // Short letters-only values are product names (LinkedIn) that switch case
+    // as often as random text does.
+    if (v.length < LETTERS_ONLY_MIN) return false;
     return caseSwitches(v) >= 3 && h >= floor;
   }
   return h >= floor && (v.length >= 16 || classes(v) >= 2);
@@ -524,4 +531,4 @@ function redact(text, found) {
   return out + text.slice(i);
 }
 
-module.exports = { presignedSpans, maskPresigned, scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };
+module.exports = { LETTERS_ONLY_MIN, presignedSpans, maskPresigned, scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };
