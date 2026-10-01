@@ -22,6 +22,8 @@
     <a href="https://github.com/leonardocandiani/keyfence/pulls"><img src="https://img.shields.io/badge/PRs-welcome-1a1a2e?style=for-the-badge" alt="PRs: welcome" /></a>
   </p>
 
+  <p><a href="README.pt-BR.md">Leia em português</a></p>
+
   <p>
     <a href="#what-it-does">What it does</a> •
     <a href="#what-it-detects">What it detects</a> •
