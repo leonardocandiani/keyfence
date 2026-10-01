@@ -284,6 +284,46 @@ function scanUrlParams(text) {
   return out;
 }
 
+// Pre-signed storage links (GCS X-Goog-*, S3 X-Amz-*, Azure SAS) carry a
+// signature and a credential id in the query on purpose: the link is the
+// short-lived grant. Only these params are named here; any other param in the
+// same URL (`api_key=`, `token=`) stays an ordinary finding.
+const PRESIGN_PARAM = /^(?:x-goog-[a-z-]+|x-amz-[a-z-]+|signature|awsaccesskeyid|googleaccessid|sv|ss|srt|sp|se|st|sr|spr|sip|sig|skoid|sktid|skt|ske|sks|skv)$/i;
+
+function presignedUrl(params) {
+  const has = (re) => params.some((p) => re.test(p));
+  return has(/^x-goog-signature$/i) || has(/^x-amz-signature$/i)
+    || (has(/^sig$/i) && has(/^sv$/i)) || (has(/^signature$/i) && has(/^(?:awsaccesskeyid|googleaccessid)$/i));
+}
+
+// Spans (`name=value`) of the signing params inside every pre-signed URL.
+function presignedSpans(text) {
+  const out = [];
+  URL_RE.lastIndex = 0;
+  let m;
+  while ((m = URL_RE.exec(text))) {
+    const q = m[0].indexOf('?');
+    if (q < 0) continue;
+    const parts = [];
+    let at = m.index + q + 1;
+    for (const kv of m[0].slice(q + 1).split('&')) {
+      parts.push({ name: kv.split('=')[0], start: at, end: at + kv.length });
+      at += kv.length + 1;
+    }
+    if (!presignedUrl(parts.map((x) => x.name))) continue;
+    for (const x of parts) if (PRESIGN_PARAM.test(x.name)) out.push({ start: x.start, end: x.end });
+  }
+  return out;
+}
+
+// Same text with the signing params blanked out (same length, so offsets hold),
+// so a label value cannot run across them into a neighbouring `token=`.
+function maskPresigned(text) {
+  let t = text;
+  for (const { start, end } of presignedSpans(text)) t = t.slice(0, start) + '_'.repeat(end - start) + t.slice(end);
+  return t;
+}
+
 const CANDIDATE = /[A-Za-z0-9_\-+/=.]{24,}/g;
 
 function scanAmbiguous(text, taken) {
@@ -484,4 +524,4 @@ function redact(text, found) {
   return out + text.slice(i);
 }
 
-module.exports = { scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };
+module.exports = { presignedSpans, maskPresigned, scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };
