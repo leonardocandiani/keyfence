@@ -12,7 +12,7 @@ const { judge } = require('./jev');
 const { strongShape } = require('./forms');
 
 const RETRY_MS = Number(process.env.KEYFENCE_CLASSIFY_RETRY_MS) || 3000;
-const { hash, statePath, readState, writeState, pushNotice, captureText, fallbackText, WARN_TEXT } = require('./hook');
+const { hash, statePath, readState, writeState, locked, pushNotice, captureText, fallbackText, WARN_TEXT } = require('./hook');
 
 async function run(jobFile) {
   let job;
@@ -59,10 +59,12 @@ function settle(sid, verdicts, secrets, unclear, ttl) {
   const file = statePath(sid);
   const rule = new Map([...unclear.map((v) => [hash(v), 'unclear']), ...secrets.map((v) => [hash(v), 'classifier'])]);
   const judged = new Set(verdicts.map((v) => hash(v.value)));
-  const list = readState(file, ttl)
-    .filter((x) => !(x.rule === 'pending' && judged.has(x.h) && !rule.has(x.h)))
-    .map((x) => (x.rule === 'pending' && rule.has(x.h) ? { ...x, rule: rule.get(x.h), src: 'prompt' } : x));
-  writeState(file, list);
+  locked(file, () => {
+    const list = readState(file, ttl)
+      .filter((x) => !(x.rule === 'pending' && judged.has(x.h) && !rule.has(x.h)))
+      .map((x) => (x.rule === 'pending' && rule.has(x.h) ? { ...x, rule: rule.get(x.h), src: 'prompt' } : x));
+    writeState(file, list);
+  });
 }
 
 module.exports = { run, settle };
