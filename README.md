@@ -171,10 +171,25 @@ hashed. A remembered secret is denied when it would go to:
 - the network: `curl`, `wget`, `ssh`, `scp`, `gh`, cloud CLIs, and one-liners
   like `node -e "fetch(...)"` or `python3 -c "requests.post(...)"`
 - a commit, tag or push
+- a message to a person: `central-enviar`, `central-bruna`, `wacli send`. To
+  send a stored credential to someone the user chose, the command carries only
+  the variable name (`--segredo NAME` with a `{{segredo}}` marker in the text)
+  and the sending process reads the value itself; the literal never passes
+  through the agent, the argv or a log
 - any tool that is not local: MCP tools, WebFetch, artifact publishing, and tools
   added in future versions (default deny). Tools whose job is storing a secret,
   like setting an environment variable in a hosting provider, are allowed.
 - a source file (`.js`, `.py`, `.sh`, `.yml`, `.json`...) or any file git tracks
+
+Sending to another session on the same machine (`SendMessage` to a session name
+or a `uds:` socket, the claude-peers bridge) does not leave it, so only a
+confirmed credential (a provider format, the vault, a field the user called a
+password) is blocked there; a word keyfence merely suspects is not.
+
+A word is never a secret by shape alone when it is a code identifier, a file
+name, an e-mail, a path, a markup tag, an upper-case session name or a formatted
+number: only an explicit label (`senha:`, `token:`) or a credential field makes
+it one.
 
 Writing it to `.env` or another git-ignored file passes. Independently of the
 taint, a high-confidence secret written into a git-tracked file is denied too.

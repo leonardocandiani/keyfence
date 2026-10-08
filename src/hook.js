@@ -41,7 +41,7 @@ const WEAK_RULES = new Set(['pending', 'unclear', 'labeled', 'contextual', 'high
 const IDENTITY_ROLE = /^(?:login|user|username|usuario|email|e_mail)(?:_\d+)?$/i;
 // Fields where the user said "this is the password": any shape counts.
 const EXPLICIT_ROLE = /^(?:password|senha|pass|pin)(?:_\d+)?$/i;
-const NETWORK = /\b(curl|wget|http|https|xh|nc|ncat|socat|telnet|ftp|sftp|scp|rsync|ssh|gh\s|git\s+(?:commit|push|tag|notes|send-email)|aws\s|az\s|gcloud\s|doctl\s|vercel\s|flyctl\s|nc\s)\b|\b(node|bun|deno|python3?|ruby|php|perl)\b[^|;&]*\b(fetch|requests?|urllib|httpx|aiohttp|axios|got|undici|http\.request|https\.request|net\/http|file_get_contents|XMLHttpRequest|LWP|socket)\b/i;
+const NETWORK = /\b(curl|wget|http|https|xh|nc|ncat|socat|telnet|ftp|sftp|scp|rsync|ssh|gh\s|central-enviar|central-bruna|wacli\s+send|git\s+(?:commit|push|tag|notes|send-email)|aws\s|az\s|gcloud\s|doctl\s|vercel\s|flyctl\s|nc\s)\b|\b(node|bun|deno|python3?|ruby|php|perl)\b[^|;&]*\b(fetch|requests?|urllib|httpx|aiohttp|axios|got|undici|http\.request|https\.request|net\/http|file_get_contents|XMLHttpRequest|LWP|socket)\b/i;
 const READER = /\b(cat|bat|less|more|head|tail|grep|egrep|fgrep|rg|ag|sed|awk|jq|yq|strings|xxd|hexdump|od|plutil|defaults\s+read|base64|nl|tac|python3?\s+-c|node\s+-e|ruby\s+-e|perl\s+-[en])\b/;
 // The same readers in PowerShell (the primary shell of Claude Code on Windows):
 // cmdlets, their aliases, .NET file reads and the Unix names PowerShell also runs.
