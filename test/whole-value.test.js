@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const { scan } = require('../src/detect');
 const { candidatesOf } = require('../src/jev');
+const { commonForm } = require('../src/forms');
 
 const ROUNDS = Number(process.env.ROUNDS || 400);
 const PRINTABLE = Array.from({ length: 94 }, (_, i) => String.fromCharCode(33 + i)).join('');
@@ -20,9 +21,11 @@ const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('')
 // senha é X?" nobody can tell whose `?` it is, so the sentence gets it. Nor
 // may it be wholly shaped like a file path (/ab/cd99, ~/x, ./x): in prose that
 // reads as one.
+// Nor may it be wholly a plain identifier, file name, e-mail or dotted name (word.word9):
+// by shape alone those are never asked about; a label still captures them.
 // Anywhere, a value that is wholly `$NAME` reads as a variable, not a password.
 const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v);
-const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v);
+const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
 const LAYOUTS = [
   ['label', '', FIELD, (v) => `Senha: ${v}`],
   ['login + label', '', FIELD, (v) => `Usuário: joao.silva\nSenha: ${v}`],
