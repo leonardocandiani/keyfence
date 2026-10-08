@@ -258,14 +258,14 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('aleatória longa é forma forte', strongShape(STRONG), true);
   check('identificador não é forma forte', strongShape(FN), false);
   check('e-mail não é forma forte', strongShape(MAIL), false);
-})().then(() => {
+})().then(() => sleep(1500)).then(() => {
   const failed = cases.filter((c) => !c.ok);
   console.log(`travas: ${cases.length - failed.length}/${cases.length} scenarios ok`);
   failed.forEach((c) => console.log(`  FAIL ${c.name}: got ${c.got}, want ${c.want}`));
-  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   process.exitCode = failed.length ? 1 : 0;
 }).catch((e) => {
   console.error(e);
-  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   process.exit(1);
 });
