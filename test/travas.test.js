@@ -85,7 +85,10 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('id de mensagem do WhatsApp não vai ao classificador', candidatesOf(`o id da mensagem é ${MSGID}, confere`).length, 0);
   check('hex maiúsculo qualquer de 22 caracteres não é forma comum', commonForm(`7A1C${r(18, '0123456789ABCDEF')}`), null);
   vault.add('wa/default', { secret: MSGID });
-  check('letras aleatórias de 17 não são identificador', commonForm(r(17, LET)), null);
+  // Letras aleatórias com a forma de palavras camelCase existem (cerca de 0,5%): o teste é estatístico.
+  let aleatoriasComoIdentificador = 0;
+  for (let i = 0; i < 400; i++) if (commonForm(r(17, LET))) aleatoriasComoIdentificador++;
+  check('letras aleatórias de 17 quase nunca são identificador (até 3 em 400)', aleatoriasComoIdentificador <= 3, true);
   check('chave com dígitos não é forma comum', commonForm(`aB3${r(14)}`), null);
 
   check('nome de variável de ambiente é forma comum', commonForm(VARNAME), 'name');
