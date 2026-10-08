@@ -80,6 +80,11 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('caminho de dois identificadores é forma comum', commonForm(`adminClient/${FN}`), 'path');
   check('tag de marcação é forma comum', commonForm('</nav-header-list>'), 'markup');
   check('trecho base64 com barras não é forma comum', commonForm(`${r(12)}/${r(14)}`), null);
+  const MSGID = `3EB0${r(18, '0123456789ABCDEF')}`; // id de mensagem do WhatsApp: 22 hex maiúsculos
+  check('id de mensagem do WhatsApp é forma comum', commonForm(MSGID), 'id');
+  check('id de mensagem do WhatsApp não vai ao classificador', candidatesOf(`o id da mensagem é ${MSGID}, confere`).length, 0);
+  check('hex maiúsculo qualquer de 22 caracteres não é forma comum', commonForm(`7A1C${r(18, '0123456789ABCDEF')}`), null);
+  vault.add('wa/default', { secret: MSGID });
   check('letras aleatórias de 17 não são identificador', commonForm(r(17, LET)), null);
   check('chave com dígitos não é forma comum', commonForm(`aB3${r(14)}`), null);
 
@@ -92,9 +97,9 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   vault.add('anthropic/default', { api_key: real });
   const { maintain } = require('../src/maintain');
   const dry = await maintain({ apply: false, roots: [] });
-  check('maintain aponta a função no cofre sem apagar', `${[...dry.falsePositives].sort().join(',')}|${vault.list().length}`, 'dash/api,dash/default|4');
+  check('maintain aponta a função no cofre sem apagar', `${[...dry.falsePositives].sort().join(',')}|${vault.list().length}`, 'dash/api,dash/default,wa/default|5');
   const done = await maintain({ apply: true, roots: [] });
-  check('maintain apaga a função do cofre', [...done.falsePositives].sort().join(','), 'dash/api,dash/default');
+  check('maintain apaga a função do cofre', [...done.falsePositives].sort().join(','), 'dash/api,dash/default,wa/default');
   check('cofre mantém a senha e a chave reais', vault.list().map((s) => s.alias).sort().join(','), 'anthropic/default,banco/default');
   // Registro misto: a função salva como segredo ao lado da senha real e do login.
   const pw = `Mp${r(6, '0123456789')}${r(8, LET)}`;

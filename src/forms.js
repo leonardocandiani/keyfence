@@ -71,6 +71,10 @@ function isPath(w) {
 // A pasted markup tag (`</nav-header>`, `<my-component>`): a placeholder, not a value.
 const isMarkupTag = (w) => /^<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>$/.test(w);
 
+// Message ids of WhatsApp Web / multi-device (`3EB0` plus hex), which `central msgs`, logs and
+// hand-offs quote all day. An id names a message; it grants nothing.
+const isMessageId = (w) => /^3EB0[0-9A-F]{16,28}$/.test(w);
+
 const isEmail = (w) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(w);
 
 /**
@@ -82,6 +86,7 @@ function commonForm(w) {
   const s = String(w);
   if (FORMATTED(s)) return 'formatted';
   if (isEmail(s)) return 'email';
+  if (isMessageId(s)) return 'id';
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
   if (isMarkupTag(s)) return 'markup';
