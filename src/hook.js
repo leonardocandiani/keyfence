@@ -444,10 +444,16 @@ function startClassifier(d, prompt, settled, cfg, ttl) {
   return cands.length;
 }
 
+// Text that reaches the prompt hook without the user having typed it: messages from
+// other sessions, teammates and agents, system reminders, background-task
+// notices. Only what the user pastes is a credential disclosure; these carry ids,
+// names and code. They are cut out before anything is scanned or captured.
+const NOT_TYPED = /<(cross-session-message|teammate-message|agent-message|system-reminder|task-notification|channel)\b[^>]*>[\s\S]*?<\/\1(?:\s[^>]*)?>/g;
+const stripNotTyped = (text) => text.replace(NOT_TYPED, ' ').trim();
+
 async function onPrompt(d, cfg) {
-  const prompt = String(d.prompt || '').slice(0, MAX_SCAN);
-  // Background-task notifications arrive as prompts; they carry ids and paths, not secrets.
-  if (/^\s*<task-notification>/.test(prompt)) return;
+  const prompt = stripNotTyped(String(d.prompt || '').slice(0, MAX_SCAN));
+  if (!prompt || /^\s*<task-notification>/.test(prompt)) return;
   const ttl = cfg.ttlHours * 3600e3;
   const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
   const items = [...findings, ...ambiguous];
@@ -713,4 +719,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
+module.exports = { main, pieces, stripNotTyped, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
