@@ -63,6 +63,13 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
 (async () => {
   cfgWrite({ enabled: false });
 
+  // nome de job com segmento de duração: 32 caracteres, três classes, mas é nome
+  for (const nome of ['sdr-natalia-crm-sync-retry-5min', 'sdr-natalia-call-retry-1min', 'limpa-cache-diario-24h']) {
+    check(`nome kebab com duração é forma comum (${nome})`, commonForm(nome), 'name');
+    check(`nome kebab com duração não é forma forte (${nome})`, strongShape(nome), false);
+  }
+  check('aleatório kebab com dígitos continua forte', strongShape('k3j9-x8d2-m4p7-q1w5-z6v0-b9n3-c7a2'), true);
+
   // --- 1. nome de sessão -----------------------------------------------------
   check('sessão em maiúsculas com hífen é forma comum', commonForm(SESSION), 'session');
   check('sessão não vai ao classificador', candidatesOf(`manda para ${SESSION} o resultado`).length, 0);

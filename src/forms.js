@@ -39,7 +39,7 @@ function isCamelIdentifier(w) {
 // - _ or . (user_id_42, config.db.host, max-width).
 function isNameIdentifier(w) {
   const runs = w.split(/[-_.]/);
-  return runs.length >= 2 && runs.every((r) => WORD.test(r) || isCamelIdentifier(r) || /^\d{1,4}$/.test(r))
+  return runs.length >= 2 && runs.every((r) => WORD.test(r) || isCamelIdentifier(r) || /^\d{1,4}[a-z]{1,4}$/.test(r) || /^\d{1,4}$/.test(r))
     && runs.some((r) => /^[A-Za-z]{2,}/.test(r));
 }
 
