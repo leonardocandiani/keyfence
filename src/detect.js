@@ -322,6 +322,15 @@ function maskPresigned(text) {
   return t;
 }
 
+// Click and campaign ids that ad platforms append to links (fbclid, gclid, utm_*,
+// igshid...): long and random-looking on purpose, but a tracker, never a credential.
+const TRACKING_PARAM = /(?<=[?&;])(?:fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|ttclid|twclid|li_fat_id|igshid|igsh|srsltid|mc_cid|mc_eid|_ga|_gl|utm_[a-z0-9_]+)=[^&#\s"'`<>)\]]*/gi;
+
+// Same text with the tracking params blanked out (same length, offsets hold).
+function maskTracking(text) {
+  return text.includes('=') ? text.replace(TRACKING_PARAM, (m) => '_'.repeat(m.length)) : text;
+}
+
 const CANDIDATE = /[A-Za-z0-9_\-+/=.]{24,}/g;
 
 function scanAmbiguous(text, taken) {
@@ -329,11 +338,15 @@ function scanAmbiguous(text, taken) {
   CANDIDATE.lastIndex = 0;
   let m;
   while ((m = CANDIDATE.exec(text))) {
-    const value = m[0].replace(/^[.\-_/=+]+|[.\-_/=+]+$/g, '');
+    let value = m[0].replace(/^[.\-_/=+]+|[.\-_/=+]+$/g, '');
+    // A link's host belongs to the link: judge only what follows it (an invite code
+    // of 22 characters is a public path, a 40-character token in the path is not).
+    const host = /^(?:[a-z0-9-]+\.)+[a-z]{2,}\//i.exec(value);
+    if (host) value = value.slice(host[0].length).replace(/^[.\-_/=+]+/, '');
     if (value.length < 24 || value.length > 512) continue;
     if (benignShape(value) || PLACEHOLDER.test(value)) continue;
     if (classes(value) < 3 || entropy(value) < 4.0) continue;
-    const start = m.index + m[0].indexOf(value);
+    const start = m.index + m[0].indexOf(value, host ? host[0].length : 0);
     if (taken.some((f) => start < f.end && f.start < start + value.length)) continue;
     out.push({ rule: 'high-entropy', name: 'High-entropy string', value, start, end: start + value.length, confidence: 'low' });
   }
@@ -495,8 +508,9 @@ function resolve(findings) {
  * @param {{ambiguous?: boolean}} [opts]
  * @returns {{findings: object[], ambiguous: object[]}}
  */
-function scan(text, opts = {}) {
-  if (!text || typeof text !== 'string') return { findings: [], ambiguous: [] };
+function scan(raw, opts = {}) {
+  if (!raw || typeof raw !== 'string') return { findings: [], ambiguous: [] };
+  const text = maskTracking(raw);
   const lower = text.toLowerCase();
   const known = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanUrlParams(text)]);
   const findings = opts.message ? resolve([...known, ...scanContextual(text, known)]) : known;
@@ -522,4 +536,4 @@ function redact(text, found) {
   return out + text.slice(i);
 }
 
-module.exports = { LETTERS_ONLY_MIN, presignedSpans, maskPresigned, scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };
+module.exports = { LETTERS_ONLY_MIN, presignedSpans, maskPresigned, maskTracking, scan, shape, redact, entropy, looksSecret, edgeOf, scanContextual };

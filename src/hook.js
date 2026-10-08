@@ -450,10 +450,16 @@ function startClassifier(d, prompt, settled, cfg, ttl) {
 // names and code. They are cut out before anything is scanned or captured.
 const NOT_TYPED = /<(cross-session-message|teammate-message|agent-message|system-reminder|task-notification|channel)\b[^>]*>[\s\S]*?<\/\1(?:\s[^>]*)?>/g;
 const stripNotTyped = (text) => text.replace(NOT_TYPED, ' ').trim();
+// Events a service pushes into a session without a wrapper tag: "[monitor] [kind]: text"
+// at the start and "ref: <id>" at the very end.
+const EVENT_LINE = /^\s*\[[A-Za-z_-]{2,24}\][\s\S]*\bref:\s*[A-Za-z0-9_-]+\s*$/;
+// The payload carries no origin today; if a future Claude Code adds one, it counts.
+const notTyped = (d, prompt) => EVENT_LINE.test(prompt) || (d.origin && d.origin.kind && d.origin.kind !== 'human')
+  || d.turn_origin === 'peer' || d.turnOrigin === 'peer' || d.prompt_source === 'system' || d.promptSource === 'system';
 
 async function onPrompt(d, cfg) {
   const prompt = stripNotTyped(String(d.prompt || '').slice(0, MAX_SCAN));
-  if (!prompt || /^\s*<task-notification>/.test(prompt)) return;
+  if (!prompt || /^\s*<task-notification>/.test(prompt) || notTyped(d, prompt)) return;
   const ttl = cfg.ttlHours * 3600e3;
   const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
   const items = [...findings, ...ambiguous];
