@@ -21,8 +21,14 @@ const { isCamelIdentifier } = require('./forms');
 // value may start with anything but a space or quote (its end is found from the
 // message's syntax); in code it must open with 8 plain characters, as quotes,
 // brackets and commas there are the language's own syntax.
-const LABEL_HEAD = /(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer))["']?\s*(?:[:=]|=>|:=)\s*(["'`]?)/.source;
-const LABEL = new RegExp(LABEL_HEAD + /([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/.source, 'gi');
+const LABEL_KEYWORDS = '(?:password|passwd|pwd|pass|senha|contrasena|contraseña|secret|segredo|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth|credential|credencial|chave|bearer)';
+const LABEL_TAIL = '(?:[_-](?:app|api|web|prod|producao|dev|test|teste)(?:[_-][A-Za-z0-9]{2,20}){0,2})?';
+const LABEL_SEP = '["\']?\\s*(?:[:=]|=>|:=)\\s*(["\'`]?)';
+const LABEL_HEAD = new RegExp('(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*' + LABEL_KEYWORDS + ')' + LABEL_SEP).source;
+// In a message a label may carry a qualifier after the keyword: `senha-app-gmail=...`,
+// `token_prod: ...`. Not in code, where `token-count: 4` is a key, not a label.
+const LABEL_MSG_HEAD = new RegExp('(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*' + LABEL_KEYWORDS + LABEL_TAIL + ')' + LABEL_SEP).source;
+const LABEL = new RegExp(LABEL_MSG_HEAD + /([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/.source, 'gi');
 const LABEL_CODE = new RegExp(LABEL_HEAD + /([^\s"'`,;()[\]{}<>]{8,})(\(?)/.source, 'gi');
 
 // Values that look like placeholders, references or code, never a real secret.
@@ -244,6 +250,11 @@ function scanLabeled(text, message = false) {
     let start = at;
     if (message) {
       ({ value, start } = fullValue(text, at, quote));
+      // A Google app password is sixteen letters shown as four groups: `abcd efgh ijkl mnop`.
+      if (/^[a-z]{4}$/.test(value) && PASSWORD_LABEL.test(label)) {
+        const rest = /^(?: [a-z]{4}){3}(?![A-Za-z0-9])/.exec(text.slice(start + value.length));
+        if (rest) value += rest[0];
+      }
       // `token = getToken(user, x)` reads as code even in a message; `Senha: ab9(Xy`
       // alone on its line does not.
       if (call && !quote && /^[A-Za-z_$][\w$.]*$/.test(raw) && text.slice(start + value.length).split('\n')[0].trim()) continue;
