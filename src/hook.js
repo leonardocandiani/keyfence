@@ -99,8 +99,39 @@ function readState(file, ttlMs) {
   }
 }
 
+// The hook, the background classifier and the naming job all read-modify-write the
+// same session file. Without a lock one of them overwrites the other's update (a
+// notice taken at the moment the job stores the renamed credential loses it).
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function locked(file, fn) {
+  const lock = `${file}.lock`;
+  const end = Date.now() + 2000;
+  for (;;) {
+    try {
+      fs.mkdirSync(lock);
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') return fn();
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.rmdirSync(lock);
+      } catch { /* released meanwhile */ }
+      if (Date.now() > end) return fn();
+      sleepMs(10);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.rmdirSync(lock); } catch { /* already gone */ }
+  }
+}
+
 function taint(sessionId, items, source, ttlMs) {
   const file = statePath(sessionId);
+  return locked(file, () => taintLocked(file, items, source, ttlMs));
+}
+
+function taintLocked(file, items, source, ttlMs) {
   const list = readState(file, ttlMs);
   const seen = new Set(list.map((x) => x.h));
   let added = 0;
@@ -223,14 +254,16 @@ function stillHoldsPending(file, list) {
 
 function mark(sessionId, items, ttlMs) {
   const file = statePath(sessionId);
-  const list = readState(file, ttlMs);
-  const seen = new Set(list.map((x) => `${x.d}:${x.n}`));
-  for (const it of items) {
-    if (seen.has(`${it.d}:${it.n}`)) continue;
-    list.push({ ...it, ts: Date.now() });
-    seen.add(`${it.d}:${it.n}`);
-  }
-  writeState(file, list);
+  locked(file, () => {
+    const list = readState(file, ttlMs);
+    const seen = new Set(list.map((x) => `${x.d}:${x.n}`));
+    for (const it of items) {
+      if (seen.has(`${it.d}:${it.n}`)) continue;
+      list.push({ ...it, ts: Date.now() });
+      seen.add(`${it.d}:${it.n}`);
+    }
+    writeState(file, list);
+  });
 }
 
 // Messages for the agent produced outside a hook call (the background
@@ -241,10 +274,12 @@ function pushNotice(sessionId, text, ttlMs) {
 
 function takeNotices(sessionId, ttlMs) {
   const file = statePath(sessionId);
-  const list = readState(file, ttlMs);
-  const notices = list.filter((x) => x.d === 'notice');
-  if (notices.length) writeState(file, list.filter((x) => x.d !== 'notice'));
-  return notices.map((x) => x.text);
+  return locked(file, () => {
+    const list = readState(file, ttlMs);
+    const notices = list.filter((x) => x.d === 'notice');
+    if (notices.length) writeState(file, list.filter((x) => x.d !== 'notice'));
+    return notices.map((x) => x.text);
+  });
 }
 
 // Variables and files a local command or write is about to fill with a tainted value.
@@ -678,4 +713,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, PENDING_MS, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
+module.exports = { main, pieces, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
