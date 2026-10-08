@@ -77,6 +77,9 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('camelCase de palavras não vai ao classificador', candidatesOf(`a função ${FN} do admin convida por e-mail`).length, 0);
   check('camelCase sozinho em linha, sob título, não é credencial', scan(`### Auth admin\n${FN}`, { message: true }).findings.length, 0);
   check('camelCase com cue "a chave é" ainda não é credencial', scan(`a chave é ${FN}`, { message: true }).findings.length, 0);
+  check('caminho de dois identificadores é forma comum', commonForm(`adminClient/${FN}`), 'path');
+  check('tag de marcação é forma comum', commonForm('</nav-header-list>'), 'markup');
+  check('trecho base64 com barras não é forma comum', commonForm(`${r(12)}/${r(14)}`), null);
   check('letras aleatórias de 17 não são identificador', commonForm(r(17, LET)), null);
   check('chave com dígitos não é forma comum', commonForm(`aB3${r(14)}`), null);
 
