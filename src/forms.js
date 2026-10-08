@@ -111,7 +111,7 @@ function strongShape(w) {
   if (commonForm(s)) return false;
   if (s.length >= 32 && classes(s) >= 3 && entropy(s) >= 3.5) return true;
   // Hex and UUID: an API key as often as a hash, and indistinguishable by shape.
-  if (s.length >= 32 && /^[0-9a-f-]+$/i.test(s) && entropy(s) >= 3.3) return true;
+  if (s.length >= 32 && /^[0-9a-f-]+$/i.test(s)) return true;
   return s.length >= 40 && /^[A-Za-z0-9+/_=-]+$/.test(s) && entropy(s) >= 4;
 }
 
