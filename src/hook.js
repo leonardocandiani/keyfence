@@ -158,8 +158,14 @@ function writeState(file, list) {
 // Every substring that could be a secret, split the ways a value gets glued to
 // its surroundings: quotes, separators, escapes, `KEY=value`, `Bearer value`.
 function pieces(text) {
-  const raw = String(text).slice(0, MAX_SCAN).match(/[^\s'"`,;()[\]{}<>\\]{8,}/g) || [];
+  const body = String(text).slice(0, MAX_SCAN);
+  const raw = body.match(/[^\s'"`,;()[\]{}<>\\]{8,}/g) || [];
   const out = new Set();
+  // Four groups of four letters (a Google app password), with the spaces and without.
+  for (const g of body.match(/\b[a-z]{4}(?: [a-z]{4}){3}\b/g) || []) {
+    out.add(g);
+    out.add(g.replace(/ /g, ''));
+  }
   for (const t of raw) {
     out.add(t);
     for (const p of t.split(/[=:@]/)) if (p.length >= 8) out.add(p);
@@ -463,7 +469,9 @@ async function onPrompt(d, cfg) {
   const ttl = cfg.ttlHours * 3600e3;
   const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
   const items = [...findings, ...ambiguous];
-  if (items.length) taint(d.session_id, items, 'prompt', ttl);
+  // A value written in groups (a Google app password) is used with or without the spaces.
+  const joined = items.filter((i) => /\s/.test(i.value)).map((i) => ({ ...i, value: i.value.replace(/\s+/g, '') }));
+  if (items.length) taint(d.session_id, [...items, ...joined], 'prompt', ttl);
   if (cfg.promptMode === 'block' && items.length) {
     const kinds = [...new Set(items.map((i) => i.rule))].join(', ');
     out({ decision: 'block', reason: `[keyfence] This message contains a credential (${kinds}). Send it again without the value: point to the file that holds it, or store it first and reference the variable name.` });
