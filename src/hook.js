@@ -24,10 +24,23 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { scan, shape, presignedSpans, maskPresigned } = require('./detect');
+const { commonForm, FORMATTED } = require('./forms');
 const config = require('./config');
 const { WIN, slash, renameRetry } = require('./fsmode');
 
 const MAX_SCAN = 2 * 1024 * 1024;
+// A word waiting for the classifier is held for seconds, not hours: the job
+// answers or settles it within ~35 s. Past this the job is dead and the word
+// goes back to being judged by its shape alone.
+const PENDING_MS = Number(process.env.KEYFENCE_PENDING_MS) || 120e3;
+// Taint that comes from a heuristic, not from a known provider format, a typed
+// credential field or the vault. It keeps a word from leaving the machine
+// (network, external tools, commits) but never blocks work that stays here.
+const WEAK_RULES = new Set(['pending', 'unclear', 'labeled', 'contextual', 'high-entropy']);
+// A stored login, user or e-mail is the identity half of a credential, not a secret.
+const IDENTITY_ROLE = /^(?:login|user|username|usuario|email|e_mail)(?:_\d+)?$/i;
+// Fields where the user said "this is the password": any shape counts.
+const EXPLICIT_ROLE = /^(?:password|senha|pass|pin)(?:_\d+)?$/i;
 const NETWORK = /\b(curl|wget|http|https|xh|nc|ncat|socat|telnet|ftp|sftp|scp|rsync|ssh|gh\s|git\s+(?:commit|push|tag|notes|send-email)|aws\s|az\s|gcloud\s|doctl\s|vercel\s|flyctl\s|nc\s)\b|\b(node|bun|deno|python3?|ruby|php|perl)\b[^|;&]*\b(fetch|requests?|urllib|httpx|aiohttp|axios|got|undici|http\.request|https\.request|net\/http|file_get_contents|XMLHttpRequest|LWP|socket)\b/i;
 const READER = /\b(cat|bat|less|more|head|tail|grep|egrep|fgrep|rg|ag|sed|awk|jq|yq|strings|xxd|hexdump|od|plutil|defaults\s+read|base64|nl|tac|python3?\s+-c|node\s+-e|ruby\s+-e|perl\s+-[en])\b/;
 // The same readers in PowerShell (the primary shell of Claude Code on Windows):
@@ -80,7 +93,7 @@ function readState(file, ttlMs) {
   try {
     const now = Date.now();
     const list = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return Array.isArray(list) ? list.filter((x) => now - (x.ts || 0) < ttlMs) : [];
+    return Array.isArray(list) ? list.filter((x) => now - (x.ts || 0) < (x.rule === 'pending' ? Math.min(ttlMs, PENDING_MS) : ttlMs)) : [];
   } catch {
     return [];
   }
@@ -137,34 +150,61 @@ function vaultPrint() {
   if (!vaultPrints) {
     const { fingerprints } = require('./vault');
     const fp = fingerprints();
-    vaultPrints = { salt: fp.salt, byPrint: new Map(fp.list.map((x) => [x.fp, x.alias])) };
+    vaultPrints = { salt: fp.salt, byPrint: new Map(fp.list.map((x) => [x.fp, x.alias])), fieldOf: new Map(fp.list.map((x) => [x.fp, x.field || ''])) };
   }
   return vaultPrints;
 }
 
+// Does this vault value count as a secret? A login is not one, and neither is a
+// code identifier, file name or e-mail stored under a field the user never
+// called a password: that is a shape somebody once mistook for a credential.
+function secretField(field, value) {
+  if (IDENTITY_ROLE.test(field)) return false;
+  return EXPLICIT_ROLE.test(field) || !commonForm(value);
+}
+
 function vaultHit(text) {
-  const { salt, byPrint } = vaultPrint();
+  const { salt, byPrint, fieldOf } = vaultPrint();
   if (!byPrint.size || !text) return null;
   const { fingerprint } = require('./vault');
   for (const p of pieces(text)) {
-    const alias = byPrint.get(fingerprint(salt, p));
-    if (alias) return { rule: `vault:${alias}`, shape: shape(p), alias, value: p };
+    const fp = fingerprint(salt, p);
+    const alias = byPrint.get(fp);
+    if (alias && secretField(fieldOf.get(fp) || '', p)) return { rule: `vault:${alias}`, shape: shape(p), alias, value: p, weak: false };
   }
   return null;
 }
 
-// A word still waiting for the classifier never blocks when it is a date, a time
-// or a formatted number: sessions tainted before 0.8.1 held those as pending for
-// hours. A confirmed secret blocks in any shape.
-let formatted = null;
-const isFormatted = (p) => (formatted || (formatted = require('./jev').FORMATTED))(p);
+// What the session remembers about a word: the rule that tainted it and whether
+// every record of it is a heuristic. A word the vault, a typed field or a
+// provider format vouches for is confirmed.
+function taintIndex(list) {
+  const byHash = new Map();
+  for (const x of list) {
+    if (!x.h) continue;
+    const weak = WEAK_RULES.has(x.rule) && x.d !== 'store';
+    const prev = byHash.get(x.h);
+    byHash.set(x.h, { rule: x.rule, weak: weak && (!prev || prev.weak), stored: x.d === 'store' || Boolean(prev && prev.stored), identity: IDENTITY_ROLE.test(x.rule) });
+  }
+  return byHash;
+}
 
-function findTainted(text, list) {
+// A date, an identifier, a file name, an e-mail or a session name never blocks on
+// a heuristic: sessions tainted by older versions held those for hours. A login
+// is not a secret. A confirmed secret blocks in any shape; a password the user
+// labeled blocks in any shape too. `confirmedOnly` is for channels that stay on
+// this machine: only what is confirmed blocks there.
+function findTainted(text, list, confirmedOnly = false) {
   if (!list.length || !text) return null;
-  const byHash = new Map(list.filter((x) => x.h).map((x) => [x.h, x.rule]));
+  const byHash = taintIndex(list);
   for (const p of pieces(text)) {
-    const rule = byHash.get(hash(p));
-    if (rule && !(rule === 'pending' && isFormatted(p))) return { rule, shape: shape(p) };
+    const e = byHash.get(hash(p));
+    if (!e || e.identity) continue;
+    if (e.weak && (FORMATTED(p) || commonForm(p))) continue;
+    // Saved under a field by shape alone (a function name kept as a "secret"): not a secret.
+    if (e.stored && !e.weak && commonForm(p) && !EXPLICIT_ROLE.test(e.rule)) continue;
+    if (confirmedOnly && e.weak) continue;
+    return { rule: e.rule, shape: shape(p), weak: e.weak };
   }
   return null;
 }
@@ -447,7 +487,22 @@ function gitTracks(file) {
   }
 }
 
+// Sending to another session on this machine (SendMessage to a session name or a
+// uds: socket, the claude-peers bridge) never leaves it. Anything addressed with a
+// scheme (bridge:, remote:, https:) or broadcast does leave it.
+const PEER_TOOLS = /^mcp__claude-peers__send_message$/;
+function internalChannel(tool, input) {
+  if (PEER_TOOLS.test(tool)) return true;
+  if (tool !== 'SendMessage') return false;
+  const to = String(input.to || '');
+  return /^uds:\S+$/.test(to) || /^[\w][\w .-]{0,63}$/.test(to);
+}
+
 function toolText(tool, input) {
+  if (internalChannel(tool, input)) {
+    const { to, to_id: toId, ...body } = input;
+    return JSON.stringify(body);
+  }
   if (tool === 'Bash') return String(input.command || '');
   if (!LOCAL_TOOLS.has(tool)) return JSON.stringify(input);
   return [input.content, input.new_string, input.edits && JSON.stringify(input.edits), input.new_source].filter(Boolean).join('\n');
@@ -466,11 +521,15 @@ function judge(d, cfg) {
   const text = toolText(tool, input);
   const ttl = cfg.ttlHours * 3600e3;
   const list = readState(statePath(d.session_id), ttl);
-  const hit = findTainted(text, list) || vaultHit(text);
+  const internal = internalChannel(tool, input);
+  const hit = findTainted(text, list, internal) || vaultHit(text);
   pendingHit = Boolean(hit && hit.rule === 'pending');
   const file = String(input.file_path || input.notebook_path || '');
 
   if (hit) {
+    if (internal) {
+      return deny(`A confirmed credential (${hit.rule}, ${hit.shape}) would be sent to another session. It stays in the vault: name the variable instead of the value.`);
+    }
     if (!LOCAL_TOOLS.has(tool)) {
       if (cfg._allowTools.some((re) => re.test(tool))) return;
       return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) would be sent through ${tool}, which leaves the machine.`);
@@ -478,6 +537,12 @@ function judge(d, cfg) {
     if (tool === 'Bash' && NETWORK.test(text)) {
       return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) is in a command that talks to the network. ` +
         'Load it from the file that already stores it (for example `source .env`) and reference that variable; copying the value into a new variable or file is blocked the same way.');
+    }
+    // A heuristic hit only guards what leaves the machine; writing it to a local file is not a leak.
+    if (hit.weak) {
+      const copies = copiesOf(tool, input, file, list, cfg);
+      if (copies.length) mark(d.session_id, copies, ttl);
+      return;
     }
     if (file && CODE_FILE.test(file) && !/(^|\/)\.env/.test(file)) {
       return deny(`A secret seen in this session (${hit.rule}, ${hit.shape}) would be hardcoded into ${file}. Read it from an environment variable or a secret store instead.`);
@@ -568,10 +633,14 @@ function onPostTool(d, cfg) {
     for (const f of findings) hide.set(f.value, label(f.value, f.rule));
     // A variable name beats the vault alias: it is what the agent writes.
     for (const p of pieces(text)) if (names.has(hash(p)) && text.includes(p)) hide.set(p, `⟨${names.get(hash(p))}⟩`);
-    const { salt, byPrint } = vaultPrint();
+    const { salt, byPrint, fieldOf } = vaultPrint();
     if (byPrint.size) {
       const { fingerprint } = require('./vault');
-      for (const p of pieces(text)) { const a = byPrint.get(fingerprint(salt, p)); if (a && !hide.has(p) && text.includes(p)) hide.set(p, `⟨${a}⟩`); }
+      for (const p of pieces(text)) {
+        const fp = fingerprint(salt, p);
+        const a = byPrint.get(fp);
+        if (a && !hide.has(p) && text.includes(p) && secretField(fieldOf.get(fp) || '', p)) hide.set(p, `⟨${a}⟩`);
+      }
     }
     if (rules.size) {
       for (const p of pieces(text)) if (!hide.has(p) && rules.has(hash(p)) && text.includes(p)) hide.set(p, label(p));
@@ -607,4 +676,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
+module.exports = { main, pieces, PENDING_MS, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };

@@ -1,0 +1,64 @@
+--- docs/firewall/bash-firewall.orig.sh	2026-10-08 10:14:26
++++ docs/firewall/bash-firewall.sh	2026-10-08 10:15:23
+@@ -53,24 +53,44 @@
+ fi
+ 
+ # --- Leitura/exfiltracao de credenciais ---
+-# leitura local de segredo via utilitarios de texto
+-# .env tratado a parte: como substring, "mensagens.enviados" ou "process.env"
+-# viravam falso positivo e travavam comando legitimo. Aqui so conta o arquivo
+-# de verdade: .env como caminho (depois de espaco, barra, aspas ou =).
+-if [[ "$norm" =~ (cat|less|more|head|tail|strings|xxd|od|base64|nl)[[:space:]] ]] && \
+-   [[ "$norm" =~ (^|[[:space:]/\'\"=])\.env([[:space:].\'\"]|$) ]]; then
+-  block "leitura de arquivo sensivel (.env)"
++# Analise por segmento, nao pelo comando inteiro. O comando e quebrado em
++# &&, ||, ;, | e quebra de linha; so conta segmento cujo comando e um leitor
++# (cat, head, tail, less, more, strings, xxd, od, base64, nl) ou um wrapper que
++# pode executar um leitor (ssh, xargs, bash -c, find -exec...). Antes disso:
++#   - corpo de heredoc sai (e dado sendo escrito, nao comando);
++#   - alvo de redirecionamento sai (`cat > .env` escreve, nao le).
++# Assim `find -name .env`, `ls .env`, `grep -c K .env`, `cut -d= -f1 .env`,
++# `wc -l .env`, `git commit -m "nao use cat .env"` e heredoc que escreve texto
++# num .md passam; `cat .env`, `head .env.local`, `ssh box cat ~/.ssh/id_rsa` e
++# `bash -c "cat .env"` continuam bloqueados. .env.example/.sample/.template/.dist
++# nao guardam segredo e passam.
++sensitive_read() {
++  KF_CMD="$cmd" perl -e '
++    my $c = $ENV{KF_CMD} // "";
++    $c =~ s/<<-?\s*(["\x27]?)(\w+)\1([^\n]*)\n.*?\n[ \t]*\2[ \t]*(?=\n|\z)/<<HEREDOC$3/gs;
++    my $reader = qr/(?:cat|less|more|head|tail|strings|xxd|od|base64|nl)/;
++    my $wrapper = qr/(?:ssh|xargs|bash|sh|zsh|eval|docker|kubectl|find|watch|timeout|su|script)/;
++    my $envfile = qr/(?:^|[\s\/\x27"=])\.env(?:\.(?!(?:example|sample|template|dist)(?:[\s\x27"]|$))[A-Za-z0-9_-]+)*(?=[\s\x27"]|$)/;
++    my @named = (qw(id_rsa id_ed25519 id_ecdsa .aws/credentials auth-profiles.json .claude.json .npmrc .pgpass .ssh/config Keychains login.keychain));
++    for my $seg (split /\|\||&&|[|;&\n]/, $c) {
++      $seg =~ s/\d*>>?\s*\S+//g;
++      my @w = grep { length } split /\s+/, $seg;
++      shift @w while @w && $w[0] =~ /^\w+=/;
++      shift @w while @w && $w[0] =~ /^(?:sudo|time|nice|nohup|command|exec|env)$/;
++      next unless @w;
++      (my $first = $w[0]) =~ s{.*/}{};
++      my $hit = $first =~ /^$reader$/
++        || ($first =~ /^$wrapper$/ && $seg =~ /(?:^|[\s\x27"(])$reader(?=\s)/);
++      next unless $hit;
++      if ($seg =~ $envfile) { print ".env"; exit 0; }
++      for my $n (@named) { if (index($seg, $n) >= 0) { print $n; exit 0; } }
++    }
++    exit 1;
++  '
++}
++if found=$(sensitive_read); then
++  block "leitura de arquivo sensivel ($found)"
+ fi
+-for secret in 'id_rsa' 'id_ed25519' 'id_ecdsa' '.aws/credentials' \
+-              'auth-profiles.json' '.claude.json' '.npmrc' '.pgpass' \
+-              '.ssh/config' 'Keychains' 'login.keychain'; do
+-  case "$norm" in
+-    *"cat "*"$secret"*|*"less "*"$secret"*|*"more "*"$secret"*|*"head "*"$secret"*|\
+-    *"tail "*"$secret"*|*"strings "*"$secret"*|*"xxd "*"$secret"*|*"od "*"$secret"*|\
+-    *"base64 "*"$secret"*|*"nl "*"$secret"*)
+-      block "leitura de arquivo sensivel ($secret)" ;;
+-  esac
+-done
+ 
+ # exfiltracao: enviar arquivo sensivel via rede
+ case "$norm" in

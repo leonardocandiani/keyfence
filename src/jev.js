@@ -10,6 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const { shape, entropy, edgeOf, LETTERS_ONLY_MIN } = require('./detect');
+const { FORMATTED, commonForm } = require('./forms');
 
 function apiKey(cfg) {
   if (process.env[cfg.jev.apiKeyEnv]) return process.env[cfg.jev.apiKeyEnv];
@@ -29,7 +30,7 @@ const looksLikeIdentifier = (w) => w.startsWith('--') || /^[a-z]+(?:[-_.](?:[a-z
 
 // A word is a candidate if it could plausibly be a credential.
 function isCandidate(w) {
-  if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w) || FORMATTED(w)) return false;
+  if (w.length < 6 || w.length > 256 || looksLikeIdentifier(w) || commonForm(w)) return false;
   // Accented letters are letters: "proteção" is a word, not a password.
   const letters = /\p{L}/u.test(w);
   const digits = /[0-9]/.test(w);
@@ -91,7 +92,8 @@ async function classify(text, cfg) {
 // The rules decide what they recognize; everything else that could be a
 // credential goes to the classifier one word at a time, masked, so it answers
 // "which word" and not only "is there one". Emails are candidates here: an email
-// can be the password. Context decides, not the shape.
+// can be the password, but only a label says so (`senha: x`, caught by the
+// rules): by shape an e-mail, a file name or an identifier is never asked about.
 // Only what is wholly a label, a flag, a URL, a path, a version or a file name:
 // a password may start with `/` or end with `=` like base64. A path starts with
 // ~/ ./ ../ or has two segments; one lowercase segment is a URL path (/cpanel).
@@ -101,20 +103,10 @@ const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p
   || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w)
   || FORMATTED(w);
 
-// Dates, times, percentages and formatted numbers are data, not credentials. A
-// message quoting a data window ("15/03/2024 a 28/02/2025") or a rate ("40,53%")
-// held those words as pending for the whole session when the classifier was down.
-// A digits-only PIN is not affected: mayBeSecret checks it before this runs.
-const FORMATTED = (w) => /^\d{1,2}[/.-]\d{1,2}(?:[/.-](?:\d{2}|\d{4}))?$/.test(w)
-  || /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(w)
-  || /^\d{1,2}(?::\d{2}){1,2}$/.test(w) || /^\d{1,2}h\d{2}$/.test(w)
-  || /^[+-]?\d{1,3}(?:([.,])\d{3})(?:\1\d{3})*(?:[.,]\d{1,2})?%?$/.test(w)
-  || /^[+-]?\d+(?:[.,]\d+)?%$/.test(w) || /^[+-]?\d+,\d{1,2}$/.test(w);
-
 function mayBeSecret(w, cue = false) {
   // A PIN or numeric password is a candidate only when the message talks about access.
   if (cue && /^\d{4,12}$/.test(w)) return true;
-  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w)) return false;
+  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w) || commonForm(w)) return false;
   const digits = /[0-9]/.test(w);
   const symbols = /[^\p{L}\p{N}]/u.test(w);
   // CamelCase alone does not make a short word a candidate: product names

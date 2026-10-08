@@ -271,6 +271,7 @@ async function cmdMaintain(flags) {
   const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
   const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
   out.push(`not_credentials: ${r.falsePositives.length}${r.falsePositives.length ? ` ${flags.apply ? 'removed' : 'to remove'}: ${r.falsePositives.join(', ')} (a common word, not a secret)` : ''}`);
+  if (r.trimmedFields.length) out.push(`not_credentials_fields: ${r.trimmedFields.length} ${flags.apply ? 'trimmed' : 'to trim'}: ${r.trimmedFields.map((t) => `${t.alias}[${t.fields.join(',')}]`).join(', ')} (a name or e-mail saved as a secret, next to a real one)`);
   out.push(`discovered: ${r.discovered.length} new credential(s)${r.discovered.length ? `: ${r.discovered.map((x) => x.alias).join(', ')}` : ''}`);
   out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
   out.push(r.named.length ? table('named_by_context', ['record', 'now', 'how'], r.named.map((x) => ({ record: x.alias, now: x.to, how: x.action }))) : 'named_by_context: 0 credentials to rename');

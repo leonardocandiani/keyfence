@@ -9,6 +9,7 @@
 const fs = require('fs');
 const config = require('./config');
 const { judge } = require('./jev');
+const { strongShape } = require('./forms');
 
 const RETRY_MS = Number(process.env.KEYFENCE_CLASSIFY_RETRY_MS) || 3000;
 const { hash, statePath, readState, writeState, pushNotice, captureText, fallbackText, WARN_TEXT } = require('./hook');
@@ -30,7 +31,13 @@ async function run(jobFile) {
     verdicts = await judge(job.prompt, job.cands, cfg);
   }
   if (!verdicts) {
-    pushNotice(job.sid, `keyfence could not check ${job.cands.length} word(s) of the user's earlier message (classifier unavailable); they stay protected. ` +
+    // Nothing judged the words. Fail open for plain ones (an order number, a name
+    // with digits) and closed only for a known provider prefix or a long random
+    // run, so a word is never held pending for a classifier that is not coming.
+    const strong = job.cands.filter(strongShape);
+    settle(job.sid, job.cands.map((value) => ({ value })), [], strong, ttl);
+    if (!strong.length) return;
+    pushNotice(job.sid, `keyfence could not check ${strong.length} word(s) of the user's earlier message (classifier unavailable); they stay protected. ` +
       "If one of them is a credential the user shared, save it yourself: write NAME=value into the project's git-ignored .env with the Write tool, " +
       'never in a command, reply or log, tell the user the name and keep working with $NAME. Do not ask the user to send it again.', ttl);
     return;

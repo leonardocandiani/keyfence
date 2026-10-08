@@ -12,6 +12,8 @@
 //      user's own prompt, or when the optional classifier says so).
 
 const { rules } = require('./rules');
+const { entropy } = require('./entropy');
+const { isCamelIdentifier } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
@@ -42,18 +44,6 @@ const PLACEHOLDER = new RegExp(`^(?:${[
   '(?:your|my|example|exemplo|sample|fake|test|replace|insert|put)[_-][A-Za-z_-]+', // your_api_key
 ].join('|')})$`, 'i');
 
-function entropy(s) {
-  if (!s) return 0;
-  const freq = new Map();
-  for (const ch of s) freq.set(ch, (freq.get(ch) || 0) + 1);
-  let h = 0;
-  for (const n of freq.values()) {
-    const p = n / s.length;
-    h -= p * Math.log2(p);
-  }
-  return h;
-}
-
 function classes(s) {
   let n = 0;
   if (/[a-z]/.test(s)) n++;
@@ -72,6 +62,7 @@ function benignShape(s) {
     || /^[./~]|\/.*\//.test(s) // path
     || /^[a-z]+:\/\//i.test(s) // URL (credentials in URLs are a provider rule)
     || /^[a-z]*(?:[A-Z][a-z]{2,}){2,}[0-9]{0,2}$/.test(s) // CamelCaseIdentifier (real words, not random letters)
+    || isCamelIdentifier(s) // short words (By, To, Id) between the long ones
     || /^[a-z]+(?:[_-][a-z]+){2,}$/.test(s); // snake_or_kebab_identifier
 }
 

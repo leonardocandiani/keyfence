@@ -13,6 +13,7 @@ const vault = require('./vault');
 const { tidyFile } = require('./tidy');
 const { registered } = require('./capture');
 const { looksSecret } = require('./detect');
+const { commonForm } = require('./forms');
 
 const DAY = 86400e3;
 const STALE_DAYS = 90;
@@ -43,22 +44,37 @@ const KEY_ROLE = /^(?:api_key|token|secret)(?:_\d+)?$/;
 const wordLike = (v) => v.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).every((p) => p.length >= 2);
 const isCommonWord = (field, value) => KEY_ROLE.test(field) && /^[A-Za-z]{1,15}$/.test(value) && wordLike(value) && !looksSecret(value, field);
 
+// A code identifier, file name or e-mail stored under a field the user never
+// called a password: a shape somebody once mistook for a credential (a function
+// name saved as a secret, an e-mail saved as a token). A record that also holds a
+// real password or key is not judged: removeWhere needs every field to be false.
+const EXPLICIT_FIELD = /^(?:password|senha|pass|pin)(?:_\d+)?$/i;
+const isCommonShape = (field, value) => !EXPLICIT_FIELD.test(field) && Boolean(commonForm(value));
+const isFalsePositive = (field, value) => isCommonWord(field, value) || isCommonShape(field, value);
+
 // The env files that fed those records stop feeding them back (syncVault).
+// A login or user is the identity half of a credential, kept even when it looks like an e-mail.
+const IDENTITY_FIELD = /^(?:login|user|username|usuario|email|e_mail|url)(?:_\d+)?$/i;
+const isTrimmable = (field, value) => !IDENTITY_FIELD.test(field) && isFalsePositive(field, value);
+
 function dropFalsePositives(apply) {
   const { readRegistry, remember } = require('./capture');
   let dropped = [];
+  let trimmed = [];
   try {
-    dropped = vault.removeWhere(isCommonWord, apply);
+    dropped = vault.removeWhere(isFalsePositive, apply);
+    trimmed = vault.removeFieldsWhere(isTrimmable, apply);
   } catch (e) {
     process.stderr.write(`maintain: could not check the vault for common words (${e.message.slice(0, 60)})\n`);
   }
-  if (apply && dropped.length) {
+  if (apply && (dropped.length || trimmed.length)) {
     for (const [file, map] of Object.entries(readRegistry().names)) {
-      const names = Object.keys(map).filter((n) => dropped.includes(map[n].alias));
+      const names = Object.keys(map).filter((n) => dropped.includes(map[n].alias)
+        || trimmed.some((t) => t.alias === map[n].alias && t.fields.includes(map[n].role)));
       if (names.length) remember(file, {}, names);
     }
   }
-  return dropped;
+  return { dropped, trimmed };
 }
 
 // Bring the vault up to date with the env files: a credential missing from the
@@ -99,7 +115,7 @@ const expandHome = (p, home) => p.replace(/^~(?=\/|$)/, home);
 
 async function maintain({ apply = false, roots = null, home = os.homedir() } = {}) {
   const { discover } = require('./discover');
-  const falsePositives = dropFalsePositives(apply);
+  const { dropped: falsePositives, trimmed: trimmedFields } = dropFalsePositives(apply);
   const cfg = require('./config').load().discover;
   const where = roots || cfg.roots.map((r) => expandHome(r, home)).filter((r) => fs.existsSync(r));
   const found = await discover({ roots: where, depth: cfg.depth, home, apply });
@@ -112,6 +128,7 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   const list = vault.list();
   return {
     falsePositives,
+    trimmedFields,
     discovered: found.records.filter((r) => r.action === 'new' || r.action === 'added'),
     tidied,
     synced,
@@ -160,4 +177,4 @@ function uninstall() {
   return had;
 }
 
-module.exports = { isCommonWord, maintain, install, uninstall, LABEL };
+module.exports = { isCommonWord, isCommonShape, dropFalsePositives, maintain, install, uninstall, LABEL };
