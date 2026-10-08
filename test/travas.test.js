@@ -87,8 +87,8 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   vault.add('wa/default', { secret: MSGID });
   // Letras aleatórias com a forma de palavras camelCase existem (cerca de 0,5%): o teste é estatístico.
   let aleatoriasComoIdentificador = 0;
-  for (let i = 0; i < 400; i++) if (commonForm(r(17, LET))) aleatoriasComoIdentificador++;
-  check('letras aleatórias de 17 quase nunca são identificador (até 3 em 400)', aleatoriasComoIdentificador <= 3, true);
+  for (let i = 0; i < 2000; i++) if (commonForm(r(17, LET))) aleatoriasComoIdentificador++;
+  check('letras aleatórias de 17 quase nunca são identificador (até 30 em 2000)', aleatoriasComoIdentificador <= 30, true);
   check('chave com dígitos não é forma comum', commonForm(`aB3${r(14)}`), null);
 
   check('nome de variável de ambiente é forma comum', commonForm(VARNAME), 'name');
