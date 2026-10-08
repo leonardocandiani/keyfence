@@ -59,6 +59,18 @@ function isFileName(w) {
   return dot > 0 && /^[a-z][a-z0-9]{0,5}$/.test(last.slice(dot + 1)) && stem(last.slice(0, dot)) && /[A-Za-z]{2}/.test(last.slice(0, dot));
 }
 
+// `auth/updateUserByEmail`, `src/app`, `~/projetos/keyfence`: a path whose every part is a word, an
+// identifier or a file name. A base64 chunk with slashes has parts that are none of those.
+function isPath(w) {
+  if (!w.includes('/') || /\s/.test(w)) return false;
+  const parts = w.split('/').filter((x) => x && x !== '~' && x !== '.' && x !== '..');
+  const word = (x) => WORD.test(x) || isCamelIdentifier(x) || isNameIdentifier(x) || isFileName(x) || /^\d{1,4}$/.test(x);
+  return parts.length >= 1 && parts.every((x) => word(x) && (x.match(/[A-Za-z]/g) || []).length >= 3);
+}
+
+// A pasted markup tag (`</nav-header>`, `<my-component>`): a placeholder, not a value.
+const isMarkupTag = (w) => /^<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>$/.test(w);
+
 const isEmail = (w) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(w);
 
 /**
@@ -71,6 +83,8 @@ function commonForm(w) {
   if (FORMATTED(s)) return 'formatted';
   if (isEmail(s)) return 'email';
   if (isFileName(s)) return 'file';
+  if (isPath(s)) return 'path';
+  if (isMarkupTag(s)) return 'markup';
   if (isSessionName(s)) return 'session';
   if (isCamelIdentifier(s)) return 'identifier';
   if (isNameIdentifier(s)) return 'name';
