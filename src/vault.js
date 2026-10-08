@@ -254,6 +254,47 @@ function removeWhere(isFalse, apply = false) {
   return gone;
 }
 
+/**
+ * The mixed case of removeWhere: a record that holds a real credential next to a
+ * field `isFalse` rejects (a function name saved as a "secret" beside the
+ * password). Only the rejected fields go; the rest of the record stays as it was.
+ * Returns [{alias, fields}], applied only with `apply`.
+ */
+function removeFieldsWhere(isFalse, apply = false) {
+  const v = load();
+  const candidates = Object.entries(v.secrets).filter(([, s]) => Object.keys(s.fields).length > 1 && !(s.policy && s.policy.operations && s.policy.operations.length));
+  if (!candidates.length) return [];
+  const key = masterKey(false);
+  if (!key) throw new Error('vault key not found');
+  const trimmed = [];
+  try {
+    for (const [alias, s] of candidates) {
+      const bad = Object.entries(s.fields).filter(([name, box]) => {
+        const buf = open(key, alias, name, s.version, box);
+        try { return isFalse(name, buf.toString()); } finally { buf.fill(0); }
+      }).map(([name]) => name);
+      if (bad.length && bad.length < Object.keys(s.fields).length) trimmed.push({ alias, fields: bad });
+    }
+  } finally {
+    key.fill(0);
+  }
+  if (apply && trimmed.length) {
+    for (const { alias, fields } of trimmed) {
+      const s = v.secrets[alias];
+      for (const f of fields) {
+        delete s.fields[f];
+        delete s.fingerprints[f];
+        if (s.previous) {
+          delete s.previous.fields[f];
+          delete (s.previous.fingerprints || {})[f];
+        }
+      }
+    }
+    save(v);
+  }
+  return trimmed;
+}
+
 function setPolicy(alias, policy) {
   const v = load();
   const s = v.secrets[alias];
@@ -354,4 +395,4 @@ function fingerprints() {
   }
 }
 
-module.exports = { add, upsert, move, rotate, duplicates, revoke, reactivate, remove, removeWhere, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };
+module.exports = { add, upsert, move, rotate, duplicates, revoke, reactivate, remove, removeWhere, removeFieldsWhere, setPolicy, list, show, use, fingerprints, fingerprint, vaultDir, ALIAS, ENVIRONMENTS };

@@ -24,7 +24,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/detect.test.js && node test/assign.test.js && node test/uuid-titulo.test.js && node test/whole-value.test.js && node test/profiles.test.js && node test/hook.test.js && node test/classify.test.js && node test/vault.test.js && node test/credential.test.js && node test/naming.test.js && node test/tidy.test.js && node test/discover.test.js && node test/cli.test.js && node test/jev.test.js && node test/presigned.test.js && node test/palavra-comum.test.js",
+    "test": "node test/detect.test.js && node test/assign.test.js && node test/uuid-titulo.test.js && node test/whole-value.test.js && node test/profiles.test.js && node test/hook.test.js && node test/classify.test.js && node test/vault.test.js && node test/credential.test.js && node test/naming.test.js && node test/tidy.test.js && node test/discover.test.js && node test/cli.test.js && node test/jev.test.js && node test/presigned.test.js && node test/palavra-comum.test.js && node test/travas.test.js && node test/firewall.test.js",
     "calibrate": "node test/jev-calibrate.js"
   },
   "engines": {
