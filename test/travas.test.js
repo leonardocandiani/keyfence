@@ -64,11 +64,12 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   cfgWrite({ enabled: false });
 
   // referência a variável e âncora de grep não são valor
-  for (const ref of ['$OUTRO_SEGREDO_X', '${OUTRO_SEGREDO_X}', '^MINHA_CHAVE_API=', 'MINHA_CHAVE_API=', '$minhaChaveApi', '^app_secret_key=']) {
+  for (const ref of ['$OUTRO_SEGREDO_X', '${OUTRO_SEGREDO_X}', '^MINHA_CHAVE_API=', 'MINHA_CHAVE_API=', '$HOME', '^app_secret_key=']) {
     check(`referência a variável é forma comum (${ref})`, commonForm(ref), 'varref');
     check(`referência a variável não vai ao classificador (${ref})`, candidatesOf(`o valor é o mesmo de ${ref} do cofre`).length, 0);
   }
   check('senha que começa com $ continua candidata', commonForm('$Kf7mNp2qRs9x'), null);
+  for (const real of ['$Senha_2026', '$Proteauto2026x', '$AdminRoot_9', '$ADMIN12345']) check(`senha com $ e caixa ou dígitos mistos continua candidata (${real})`, commonForm(real), null);
   check('NOME=valor continua sendo atribuição, não referência', commonForm('MINHA_CHAVE_API=Kf7mNp2qRs9xLw'), null);
 
   // nome de job com segmento de duração: 32 caracteres, três classes, mas é nome

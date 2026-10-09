@@ -77,12 +77,13 @@ const isMessageId = (w) => /^3EB0[0-9A-F]{16,28}$/.test(w);
 
 // A reference to a variable, not its value: `$NOME`, `${NOME}`, a grep anchor `^NOME=`,
 // an assignment with nothing after the sign `NOME=`. Only when the name is made of words
-// or UPPER_SNAKE parts, so a password that starts with `$` stays a candidate.
+// UPPER_SNAKE or lower_snake words (the way variables are named), so a password that
+// starts with `$` and mixes case or digits stays a candidate.
 const isVarRef = (w) => {
   const m = /^(?:\$\{?|\^)?([A-Za-z_][A-Za-z0-9_]*)\}?(=?)$/.exec(w);
   if (!m || (w === m[1])) return false;
   const name = m[1];
-  return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(name) || isNameIdentifier(name) || isCamelIdentifier(name);
+  return name.length >= 4 && (/^[A-Z]+\d{0,2}(?:_[A-Z]+\d{0,2})*$/.test(name) || /^[a-z]+\d{0,2}(?:_[a-z]+\d{0,2})*$/.test(name));
 };
 
 const isEmail = (w) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(w);
