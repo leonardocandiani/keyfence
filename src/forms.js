@@ -75,6 +75,16 @@ const isMarkupTag = (w) => /^<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>$/.test(w);
 // hand-offs quote all day. An id names a message; it grants nothing.
 const isMessageId = (w) => /^3EB0[0-9A-F]{16,28}$/.test(w);
 
+// A reference to a variable, not its value: `$NOME`, `${NOME}`, a grep anchor `^NOME=`,
+// an assignment with nothing after the sign `NOME=`. Only when the name is made of words
+// or UPPER_SNAKE parts, so a password that starts with `$` stays a candidate.
+const isVarRef = (w) => {
+  const m = /^(?:\$\{?|\^)?([A-Za-z_][A-Za-z0-9_]*)\}?(=?)$/.exec(w);
+  if (!m || (w === m[1])) return false;
+  const name = m[1];
+  return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(name) || isNameIdentifier(name) || isCamelIdentifier(name);
+};
+
 const isEmail = (w) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(w);
 
 /**
@@ -90,6 +100,7 @@ function commonForm(w) {
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
   if (isMarkupTag(s)) return 'markup';
+  if (isVarRef(s)) return 'varref';
   if (isSessionName(s)) return 'session';
   if (isCamelIdentifier(s)) return 'identifier';
   if (isNameIdentifier(s)) return 'name';

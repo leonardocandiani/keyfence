@@ -63,6 +63,14 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
 (async () => {
   cfgWrite({ enabled: false });
 
+  // referência a variável e âncora de grep não são valor
+  for (const ref of ['$OUTRO_SEGREDO_X', '${OUTRO_SEGREDO_X}', '^MINHA_CHAVE_API=', 'MINHA_CHAVE_API=', '$minhaChaveApi', '^app_secret_key=']) {
+    check(`referência a variável é forma comum (${ref})`, commonForm(ref), 'varref');
+    check(`referência a variável não vai ao classificador (${ref})`, candidatesOf(`o valor é o mesmo de ${ref} do cofre`).length, 0);
+  }
+  check('senha que começa com $ continua candidata', commonForm('$Kf7mNp2qRs9x'), null);
+  check('NOME=valor continua sendo atribuição, não referência', commonForm('MINHA_CHAVE_API=Kf7mNp2qRs9xLw'), null);
+
   // nome de job com segmento de duração: 32 caracteres, três classes, mas é nome
   for (const nome of ['sdr-natalia-crm-sync-retry-5min', 'sdr-natalia-call-retry-1min', 'limpa-cache-diario-24h']) {
     check(`nome kebab com duração é forma comum (${nome})`, commonForm(nome), 'name');
