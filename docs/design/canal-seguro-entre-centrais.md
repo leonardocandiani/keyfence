@@ -52,6 +52,10 @@ Alternativas descartadas:
 - Link de uso único em serviço de terceiros: um cofre a mais para confiar, fora do nosso controle e do log.
 - Keyfence "na ponte": o valor já saiu em claro de quem enviou; só serve como rede de recusa.
 
+## Primeiro caso de uso: tokens novos do BM
+
+Em 13/10/2026 o Leonardo revogou os tokens Meta que estavam no cofre (`META_ACCESS_TOKEN`, `META_TOKEN` e `META_SECRET` em `~/.config/keyfence/secrets.env`, e `META_ACCESS_TOKEN` em `~/segsclaw/.env`). Os valores ficam marcados como revogados, sem apagar, com o registro em `~/.config/keyfence/revogados.md`. Os tokens novos do BM da SegSmart e da FM Rocket chegam da Six por este canal e entram com nome novo, nunca sobre o nome antigo: `META_BM_SEGSMART_TOKEN` e `META_BM_FMROCKET_TOKEN`. Nome novo evita que uma sessão use sem querer o valor morto guardado sob o nome velho, e deixa o histórico de rotação intacto. É o teste de aceite real do MVP: se o token novo chegar sem aparecer no grupo, no banco nem na transcrição, o canal serve.
+
 ## 3. Aprovação, revogação e rotação
 
 Aprovação do Leonardo, antes de cada envio: `seal` abre um pedido pendente (alias, destinatário, validade, motivo) e só emite o envelope depois do toque dele no painel, que consome um `aprovacao_id` de uso único. A Central já lista aprovações (`central` mostra aprovações pendentes); o encaixe exato é trabalho da sessão CENTRAL-DEV e não foi verificado.
