@@ -100,6 +100,13 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('id de mensagem do WhatsApp é forma comum', commonForm(MSGID), 'id');
   check('id de mensagem do WhatsApp não vai ao classificador', candidatesOf(`o id da mensagem é ${MSGID}, confere`).length, 0);
   check('hex maiúsculo qualquer de 22 caracteres não é forma comum', commonForm(`7A1C${r(18, '0123456789ABCDEF')}`), null);
+  const HASH8 = r(8, '0123456789abcdef').replace(/^./, 'a').replace(/.$/, '7'); // sha256[:8] citado no lugar do valor
+  check('prefixo de hash de 8 hex é forma comum', commonForm(HASH8), 'hash');
+  check('commit curto de 7 hex é forma comum', commonForm('d9ff153'), 'hash');
+  check('prefixo de hash não vai ao classificador', candidatesOf(`três tokens ainda respondiam: ${HASH8} (SYSTEM_USER do app Natalia Automacao)`).length, 0);
+  check('hex de 13 caracteres não é hash curto', commonForm(`a${r(11, '0123456789abcdef')}7`), null);
+  check('hex maiúsculo de 8 não é hash curto', commonForm('A1B2C3D4'), null);
+  check('só dígitos não é hash curto', commonForm('12345678'), null);
   vault.add('wa/default', { secret: MSGID });
   // Letras aleatórias com a forma de palavras camelCase existem (cerca de 0,5%): o teste é estatístico.
   let aleatoriasComoIdentificador = 0;
