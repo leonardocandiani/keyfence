@@ -75,6 +75,10 @@ const isMarkupTag = (w) => /^<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>$/.test(w);
 // hand-offs quote all day. An id names a message; it grants nothing.
 const isMessageId = (w) => /^3EB0[0-9A-F]{16,28}$/.test(w);
 
+// Short lowercase hex with letters and digits (`d9ff153`, a `sha256[:8]`): a commit or a hash
+// prefix that sessions quote to name a value without showing it. Too short to be a key.
+const isShortHash = (w) => /^(?=[a-f]*\d)(?=\d*[a-f])[0-9a-f]{7,12}$/.test(w);
+
 // A reference to a variable, not its value: `$NOME`, `${NOME}`, a grep anchor `^NOME=`,
 // an assignment with nothing after the sign `NOME=`. Only when the name is made of words
 // UPPER_SNAKE or lower_snake words (the way variables are named), so a password that
@@ -98,6 +102,7 @@ function commonForm(w) {
   if (FORMATTED(s)) return 'formatted';
   if (isEmail(s)) return 'email';
   if (isMessageId(s)) return 'id';
+  if (isShortHash(s)) return 'hash';
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
   if (isMarkupTag(s)) return 'markup';
