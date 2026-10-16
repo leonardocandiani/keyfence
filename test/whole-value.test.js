@@ -25,7 +25,7 @@ const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('')
 // by shape alone those are never asked about; a label still captures them.
 // Anywhere, a value that is wholly `$NAME` reads as a variable, not a password.
 const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v);
-const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
+const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?!"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
 const LAYOUTS = [
   ['label', '', FIELD, (v) => `Senha: ${v}`],
   ['login + label', '', FIELD, (v) => `Usuário: joao.silva\nSenha: ${v}`],
