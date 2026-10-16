@@ -13,7 +13,7 @@
 
 const { rules } = require('./rules');
 const { entropy } = require('./entropy');
-const { isCamelIdentifier } = require('./forms');
+const { isCamelIdentifier, commonForm } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
@@ -495,6 +495,8 @@ function scanContextual(text, taken) {
     if ((opens || closes) && opens !== next[0]) continue;
     const p = profileOf(text, value, start, end);
     if (!p || !contextToken(value, p.cued)) continue;
+    // `ref: <id>-<64 hex>` ends every monitor event: it names an event, so only a credential word right before it makes it a candidate.
+    if (!p.cued && commonForm(value) === 'eventref') continue;
     out.push({ rule: 'contextual', name: `Credential by context (${p.profile})`, value, start, end, confidence: 'medium', profile: p.profile });
   }
   return out;
