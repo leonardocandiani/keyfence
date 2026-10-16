@@ -103,10 +103,20 @@ const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p
   || /^\p{Ll}+(?:[-_.]\p{Ll}+)*$/u.test(w)
   || FORMATTED(w);
 
+// Markdown emphasis and a cut-off tail around a plain word: `*Estado:*` and
+// `Proteauto*` in the bold [Tn] blocks the Centrais exchange, `Fonte…` where a
+// reader truncates. What is left is a word, or the block's own `[T612]` tag.
+const MARKUP_EDGES = /^[*_~]+|(?:[*_~]+|[:.…]+)+$/gu;
+const PLAIN_WORD = /^(?:\p{Lu}?\p{Ll}+|\p{Lu}+)$/u;
+const isMarkedUpWord = (w) => {
+  const core = w.replace(MARKUP_EDGES, '');
+  return core !== w && (PLAIN_WORD.test(core) || /^\[T\d{1,5}\]$/.test(core));
+};
+
 function mayBeSecret(w, cue = false) {
   // A PIN or numeric password is a candidate only when the message talks about access.
   if (cue && /^\d{4,12}$/.test(w)) return true;
-  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w) || commonForm(w)) return false;
+  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w) || commonForm(w) || isMarkedUpWord(w)) return false;
   const digits = /[0-9]/.test(w);
   const symbols = /[^\p{L}\p{N}]/u.test(w);
   // CamelCase alone does not make a short word a candidate: product names
