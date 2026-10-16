@@ -70,6 +70,14 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
     check(`id de evento com hash do contrato não é forma forte (${ref.slice(0, 12)}...)`, strongShape(ref), false);
     check(`id de evento não vai ao classificador (${ref.slice(0, 12)}...)`, candidatesOf(`resumo do monitor ref: ${ref} fim`).length, 0);
   }
+  // o ref no fim do evento do monitor não é capturado pelo contexto, em qualquer prefixo
+  for (const pre of ['hn9u08zc1k', 'hn9abcdefghijkl', 'evt12345ab']) {
+    const ref = `${pre}-${H64}`;
+    for (const txt of [`ref: ${ref}`, `[monitor] [resumo]: eventos 101 102\nref: ${ref}`, `resumo de 30 min\nref: ${ref}`]) {
+      check(`ref do monitor não é achado por contexto (${pre})`, scan(txt, { ambiguous: true, message: true }).findings.length, 0);
+    }
+  }
+  check('ref do monitor com palavra de credencial antes continua achado', scan(`token: hn9u08zc1k-${H64}`, { ambiguous: true, message: true }).findings.length > 0, true);
   check('prefixo de provedor com 64 hex continua forte', strongShape(`sk-${H64}`), true);
   check('64 hex puro continua forte', strongShape(H64), true);
   check('prefixo curto demais com 64 hex continua forte', strongShape(`ab-${H64}`), true);
