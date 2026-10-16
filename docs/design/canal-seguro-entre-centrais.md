@@ -56,6 +56,16 @@ Alternativas descartadas:
 
 Em 13/10/2026 o Leonardo revogou os tokens Meta que estavam no cofre (`META_ACCESS_TOKEN`, `META_TOKEN` e `META_SECRET` em `~/.config/keyfence/secrets.env`, e `META_ACCESS_TOKEN` em `~/segsclaw/.env`). Os valores ficam marcados como revogados, sem apagar, com o registro em `~/.config/keyfence/revogados.md`. Os tokens novos do BM da SegSmart e da FM Rocket chegam da Six por este canal e entram com nome novo, nunca sobre o nome antigo: `META_BM_SEGSMART_TOKEN` e `META_BM_FMROCKET_TOKEN`. Nome novo evita que uma sessão use sem querer o valor morto guardado sob o nome velho, e deixa o histórico de rotação intacto. É o teste de aceite real do MVP: se o token novo chegar sem aparecer no grupo, no banco nem na transcrição, o canal serve.
 
+## Canal provisório até o MVP ser aprovado
+
+Definido em 16/10/2026 a pedido da CENTRAL, porque o T542 e o T546 pediam "canal fechado" sem que ele existisse. Vale só até o canal selado entrar.
+
+1. O Ricardo manda o token só no privado com o Leonardo, nunca no grupo das Centrais, nunca pela ponte MCP, nunca como arquivo no grupo.
+2. O Leonardo cola o token uma vez numa sessão do Studio. O keyfence capta e grava; o nome final é `META_BM_SEGSMART_TOKEN` (BM da SegSmart) ou `META_BM_FMROCKET_TOKEN` (BM da FM Rocket), e o valor passa a ser usado só por nome.
+3. Depois de gravado, o Leonardo apaga a mensagem para todos no WhatsApp e a CENTRAL-DEV remove do `central.db` o texto cru da mensagem (o banco guarda a mensagem inteira; conferido em 16/10). Nunca se reenvia o token pelo WhatsApp: quem precisa dele pede por nome ao cofre.
+
+Limite honesto: o valor ainda passa pelo WhatsApp do Ricardo e pelo prompt do Leonardo. É o menor caminho que não expõe o grupo, o banco da ponte nem o transcript de sessão.
+
 ## 3. Aprovação, revogação e rotação
 
 Aprovação do Leonardo, antes de cada envio: `seal` abre um pedido pendente (alias, destinatário, validade, motivo) e só emite o envelope depois do toque dele no painel, que consome um `aprovacao_id` de uso único. A Central já lista aprovações (`central` mostra aprovações pendentes); o encaixe exato é trabalho da sessão CENTRAL-DEV e não foi verificado.
