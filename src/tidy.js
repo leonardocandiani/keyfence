@@ -39,11 +39,18 @@ function sessionLogs() {
   return out;
 }
 
+// Output of a `!` command lands in the log as a user message, though nobody typed
+// it: a value printed there inside `<bash-stdout>NAME=...</bash-stdout>` must not
+// pass for the whole secret. The command itself (`<bash-input>`) was typed and stays.
+const COMMAND_OUTPUT = /<(bash-stdout|bash-stderr|local-command-stdout|local-command-stderr)>[\s\S]*?<\/\1>/g;
+
 function userMessage(line) {
   let o;
   try { o = JSON.parse(line); } catch { return null; }
   const ok = o && o.type === 'user' && !o.isMeta && o.message && typeof o.message.content === 'string';
-  return ok ? { text: o.message.content, cwd: o.cwd } : null;
+  if (!ok) return null;
+  const text = require('./hook').stripNotTyped(o.message.content.replace(COMMAND_OUTPUT, ' '));
+  return text ? { text, cwd: o.cwd } : null;
 }
 
 // User messages where today's detection recognizes each value as a credential

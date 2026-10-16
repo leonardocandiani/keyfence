@@ -91,6 +91,17 @@ function log(cwd, text) {
   check('...with the login and the password', (vault.show('sis/robson') || { fields: [] }).fields.sort().join(','), 'login,password');
   check('a second run finds everything in step', (await maintain({ apply: true, roots: [tmp], home: tmp })).synced.every((x) => x.action === 'unchanged'), true);
 
+  // a value printed by a `!` command is not a typed message, and never the whole secret
+  const { messagesWith } = require('../src/tidy');
+  const chave = Array.from({ length: 32 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+  log(tmp, `<bash-stdout>PAINEL_ADMIN_CHAVE=${chave}</bash-stdout><bash-stderr></bash-stderr>`);
+  check('command output is not the message a value came from', messagesWith([chave], '', { pieces: true }).has(chave), false);
+  log(tmp, `<bash-input>grep -c PAINEL ~/.env</bash-input>`);
+  log(tmp, `a chave do painel admin é ${chave}`);
+  const typed = messagesWith([chave], '', { pieces: true }).get(chave);
+  check('the same value typed by the user is found', Boolean(typed), true);
+  check('...as itself, not inside the command output', typed ? typed.whole === undefined : 'none', true);
+
   const failed = cases.filter((c) => !c.ok);
   for (const c of failed) console.log(`  FAIL ${c.name}: got ${c.got}, want ${c.want}`);
   console.log(`tidy: ${cases.length - failed.length}/${cases.length} ok`);
