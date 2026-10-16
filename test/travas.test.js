@@ -63,6 +63,17 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
 (async () => {
   cfgWrite({ enabled: false });
 
+  // ref: do monitor (id do evento + hash de 64 hex do contrato) não é segredo
+  const H64 = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  for (const ref of [`hn9abcdefg-${H64}`, `hn0xqrstuv-${H64}`, `evt12345ab-${H64}`]) {
+    check(`id de evento com hash do contrato é forma comum (${ref.slice(0, 12)}...)`, commonForm(ref), 'eventref');
+    check(`id de evento com hash do contrato não é forma forte (${ref.slice(0, 12)}...)`, strongShape(ref), false);
+    check(`id de evento não vai ao classificador (${ref.slice(0, 12)}...)`, candidatesOf(`resumo do monitor ref: ${ref} fim`).length, 0);
+  }
+  check('prefixo de provedor com 64 hex continua forte', strongShape(`sk-${H64}`), true);
+  check('64 hex puro continua forte', strongShape(H64), true);
+  check('prefixo curto demais com 64 hex continua forte', strongShape(`ab-${H64}`), true);
+
   // referência a variável e âncora de grep não são valor
   for (const ref of ['$OUTRO_SEGREDO_X', '${OUTRO_SEGREDO_X}', '^MINHA_CHAVE_API=', 'MINHA_CHAVE_API=', '$HOME', '^app_secret_key=']) {
     check(`referência a variável é forma comum (${ref})`, commonForm(ref), 'varref');
