@@ -50,7 +50,7 @@ for (const w of ['*Kq9zPm2x*', 'Senha123*', '*kQzXbTpwRm*', '_Ab3$xYz_']) {
 
 (async () => {
   // --- masking ---------------------------------------------------------------
-  const pw = r(6, 'abcdefghij') + r(3, '0123456789');
+  const pw = 'g' + r(5, 'abcdefghij') + r(3, '0123456789'); // 'g' fora do hex: só letras a-f e dígitos viram prefixo de hash e não são candidatos
   const k = r(28);
   const text = `a senha do banco é ${pw} e o token do painel é ${k}`;
   const m = mask(text);
