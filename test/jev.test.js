@@ -37,6 +37,17 @@ check('a digits-only PIN is still a candidate when the message talks about acces
   check('a message with data windows keeps only the real candidate', c.length === 1 && c[0] === 'Kq9zPm2x!');
 }
 
+for (const w of ['Proteauto*', '*Estado:*', '*Fato:*', '*Pedido:*', '*[T612]', 'Fonte…', 'painel*', '**Senha:**']) {
+  check(`a word in bold or cut off is not a candidate: ${w}`, !mayBeSecret(w, true));
+}
+for (const w of ['*Kq9zPm2x*', 'Senha123*', '*kQzXbTpwRm*', '_Ab3$xYz_']) {
+  check(`a secret in bold is still a candidate: ${w}`, mayBeSecret(w, true));
+}
+{
+  const msg = '*[T612] Senha da Proteauto* *Estado:* em execução *Fato:* a Central leu o painel. Fonte…';
+  check('a [Tn] block about a password has no candidate', candidatesOf(msg).length === 0);
+}
+
 (async () => {
   // --- masking ---------------------------------------------------------------
   const pw = r(6, 'abcdefghij') + r(3, '0123456789');
