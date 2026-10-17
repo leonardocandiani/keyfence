@@ -96,6 +96,21 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
     check(`aviso do monitor é evento, não digitado (${nome})`, notTyped({}, txt), true);
   }
   check('texto digitado com senha e ref no fim, sem tag, continua digitado', notTyped({}, 'a senha é Qw3rty!9xZkLm2\nref: abc'), false);
+  // chave pública SSH (authorized_keys) é para compartilhar: rótulo antes dela não vira segredo
+  const PUB = 'AAAAC3NzaC1lZDI1NTE5AAAAIPq4Zk3mWxX9r2LJ7nVtBd8QeYhC5oUa1sGfT0iKwRzN';
+  const RSA = 'AAAAB3NzaC1yc2EAAAADAQABAAABgQC' + 'x9Kq2LmPzR4vT8wYbN6cHdE1fGjA'.repeat(4);
+  const ECD = 'AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBB' + 'k3Lp9QzXr7WvYt2NmB5cDfGh'.repeat(2);
+  for (const [nome, linha] of [['ed25519', `ssh-ed25519 ${PUB} laudo@studio`], ['rsa', `ssh-rsa ${RSA} user@host`], ['ecdsa', `ecdsa-sha2-nistp256 ${ECD} user@host`]]) {
+    for (const rotulo of ['chave', 'chave pública', 'token', 'senha', 'key']) {
+      check(`chave pública ${nome} depois de "${rotulo}:" não é achado`, scan(`${rotulo}: ${linha}`, { ambiguous: true, message: true }).findings.length, 0);
+    }
+    check(`chave pública ${nome} em JSON rotulado não é achado`, scan(JSON.stringify({ chave: linha }), { ambiguous: true, message: true }).findings.length, 0);
+    check(`chave pública ${nome} em comando não é achado`, scan(`echo '${linha}' >> ~/.ssh/authorized_keys`, { ambiguous: true, message: true }).findings.length, 0);
+  }
+  check('chave pública SSH não vai ao classificador', candidatesOf(`chave: ssh-ed25519 ${PUB} laudo@studio`).length, 0);
+  check('senha ao lado de chave pública continua candidata ao classificador', candidatesOf(`ssh-ed25519 ${PUB} laudo@studio\nsenha: Qw3rty!9xZkLm2`).length > 0, true);
+  check('chave privada OpenSSH continua achada', scan('-----BEGIN OPENSSH PRIVATE KEY-----\n' + 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmU'.repeat(4) + '\n-----END OPENSSH PRIVATE KEY-----', { ambiguous: true, message: true }).findings.length > 0, true);
+  check('senha rotulada parecida com tipo de chave sem base64 continua achada', scan('senha: ssh-Qw3rty!9xZk', { ambiguous: true, message: true }).findings.length > 0, true);
   check('prefixo de provedor com 64 hex continua forte', strongShape(`sk-${H64}`), true);
   check('64 hex puro continua forte', strongShape(H64), true);
   check('prefixo curto demais com 64 hex continua forte', strongShape(`ab-${H64}`), true);
