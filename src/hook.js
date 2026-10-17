@@ -457,8 +457,9 @@ function startClassifier(d, prompt, settled, cfg, ttl) {
 const NOT_TYPED = /<(cross-session-message|teammate-message|agent-message|system-reminder|task-notification|channel)\b[^>]*>[\s\S]*?<\/\1(?:\s[^>]*)?>/g;
 const stripNotTyped = (text) => text.replace(NOT_TYPED, ' ').trim();
 // Events a service pushes into a session without a wrapper tag: "[monitor] [kind]: text"
-// at the start and "ref: <id>" at the very end.
-const EVENT_LINE = /^\s*\[[A-Za-z_-]{2,24}\][\s\S]*\bref:\s*[A-Za-z0-9_-]+\s*$/;
+// at the start and "ref: <id>" at the very end. The tag may carry a detail ("[monitor, resumo de 30 min]"),
+// and a session that receives it from a peer gets a lead line before and a note after.
+const EVENT_LINE = /^\s*(?:Another Claude session sent a message:\s*)?\[[A-Za-z_-]{2,24}(?:,[^\]\n]{1,40})?\][\s\S]*\bref:\s*[A-Za-z0-9_-]+\s*(?:\n\s*This came from another Claude session[\s\S]*)?$/;
 // The payload carries no origin today; if a future Claude Code adds one, it counts.
 const notTyped = (d, prompt) => EVENT_LINE.test(prompt) || (d.origin && d.origin.kind && d.origin.kind !== 'human')
   || d.turn_origin === 'peer' || d.turnOrigin === 'peer' || d.prompt_source === 'system' || d.promptSource === 'system';
@@ -733,4 +734,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, stripNotTyped, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
+module.exports = { main, pieces, stripNotTyped, notTyped, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
