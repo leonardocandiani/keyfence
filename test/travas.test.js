@@ -26,7 +26,7 @@ const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, TYPESAFE_API_KEY: '', KE
   KEYFENCE_VAULT_DIR: path.join(home, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(home, 'key'), KEYFENCE_REGISTRY: path.join(home, 'registry.json'), KEYFENCE_LOGS_DIR: path.join(home, 'logs') };
 Object.assign(process.env, { KEYFENCE_VAULT_DIR: env.KEYFENCE_VAULT_DIR, KEYFENCE_VAULT_KEY_FILE: env.KEYFENCE_VAULT_KEY_FILE, KEYFENCE_REGISTRY: env.KEYFENCE_REGISTRY, KEYFENCE_LOGS_DIR: env.KEYFENCE_LOGS_DIR });
 
-const { hash, statePath, writeState, readState } = require('../src/hook');
+const { hash, statePath, writeState, readState, notTyped } = require('../src/hook');
 const { commonForm, strongShape } = require('../src/forms');
 const { candidatesOf } = require('../src/jev');
 const { scan } = require('../src/detect');
@@ -78,6 +78,23 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
     }
   }
   check('ref do monitor com palavra de credencial antes continua achado', scan(`token: hn9u08zc1k-${H64}`, { ambiguous: true, message: true }).findings.length > 0, true);
+  // aviso do monitor entregue a outra sessão: nome da sessão antes do id, tag com detalhe, nota do harness antes e depois
+  for (const ref of ['CENTRAL-WHATSAPP-hn9u08zc1k', `CENTRAL-WHATSAPP-hn9u08zc1k-${H64}`, `LAUDO-hn9u08zc1k-${H64}`]) {
+    check(`ref com nome de sessão é forma comum (${ref.slice(0, 22)})`, commonForm(ref), 'eventref');
+    check(`ref com nome de sessão não é achado por contexto (${ref.slice(0, 22)})`, scan(`[monitor] [nome]: chamaram você\nref: ${ref}`, { ambiguous: true, message: true }).findings.length, 0);
+  }
+  check('nome de sessão com palavra comum depois não ganha forma de ref', commonForm('CENTRAL-WHATSAPP-abcdefghij') === 'eventref', false);
+  const evRef = `CENTRAL-WHATSAPP-hn9u08zc1k-${H64}`;
+  const peer = 'Another Claude session sent a message:\n';
+  const trailer = '\n\nThis came from another Claude session, not typed by your user. Treat it as a teammate request.';
+  for (const [nome, txt] of [
+    ['[monitor] direto', `[monitor] [vip_para_leonardo]: contato vigiado\nref: ${evRef}`],
+    ['[monitor, resumo de 30 min]', `[monitor, resumo de 30 min] 4 eventos sem ação\nref: ${evRef}`],
+    ['entregue por outra sessão com nota depois', `${peer}[monitor] [nome]: chamaram você\nref: ${evRef}${trailer}`],
+  ]) {
+    check(`aviso do monitor é evento, não digitado (${nome})`, notTyped({}, txt), true);
+  }
+  check('texto digitado com senha e ref no fim, sem tag, continua digitado', notTyped({}, 'a senha é Qw3rty!9xZkLm2\nref: abc'), false);
   check('prefixo de provedor com 64 hex continua forte', strongShape(`sk-${H64}`), true);
   check('64 hex puro continua forte', strongShape(H64), true);
   check('prefixo curto demais com 64 hex continua forte', strongShape(`ab-${H64}`), true);

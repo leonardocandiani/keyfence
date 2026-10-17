@@ -82,7 +82,11 @@ const isShortHash = (w) => /^(?=[a-f]*\d)(?=\d*[a-f])[0-9a-f]{7,12}$/.test(w);
 // The reference a monitor event carries after `ref:`: an id of 6 to 16 lowercase letters and
 // digits, a hyphen and the 64-hex hash of the event contract (`hn9abcdefg-<64 hex>`). It names
 // an event; it opens nothing. A provider prefix (`sk-`, `ghp_`...) is judged before this form.
-const isEventRef = (w) => /^[a-z0-9]{6,16}-[0-9a-f]{64}$/.test(w) && /[a-z]/.test(w.split('-')[0]);
+// A session name in capitals can come first (`CENTRAL-WHATSAPP-hn9u08zc1k`): the event id alone, or with the hash.
+const isEventRef = (w) => {
+  const m = /^((?:[A-Z][A-Z0-9]*-)+)?([a-z0-9]{6,16})(-[0-9a-f]{64})?$/.exec(w);
+  return Boolean(m) && /[a-z]/.test(m[2]) && (Boolean(m[3]) || (Boolean(m[1]) && /\d/.test(m[2])));
+};
 
 // A reference to a variable, not its value: `$NOME`, `${NOME}`, a grep anchor `^NOME=`,
 // an assignment with nothing after the sign `NOME=`. Only when the name is made of words
