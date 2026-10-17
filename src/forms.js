@@ -82,9 +82,9 @@ const isShortHash = (w) => /^(?=[a-f]*\d)(?=\d*[a-f])[0-9a-f]{7,12}$/.test(w);
 // The reference a monitor event carries after `ref:`: an id of 6 to 16 lowercase letters and
 // digits, a hyphen and the 64-hex hash of the event contract (`hn9abcdefg-<64 hex>`). It names
 // an event; it opens nothing. A provider prefix (`sk-`, `ghp_`...) is judged before this form.
-// A session name in capitals can come first (`CENTRAL-WHATSAPP-hn9u08zc1k`): the event id alone, or with the hash.
+// A session name in capitals can come first, with the event kind after it (`CENTRAL-WHATSAPP-vip-hn9u08zc1k`): the event id alone, or with the hash.
 const isEventRef = (w) => {
-  const m = /^((?:[A-Z][A-Z0-9]*-)+)?([a-z0-9]{6,16})(-[0-9a-f]{64})?$/.exec(w);
+  const m = /^((?:[A-Z][A-Z0-9]*-)+(?:[a-z]{2,12}-)?)?([a-z0-9]{6,16})(-[0-9a-f]{64})?$/.exec(w);
   return Boolean(m) && /[a-z]/.test(m[2]) && (Boolean(m[3]) || (Boolean(m[1]) && /\d/.test(m[2])));
 };
 
