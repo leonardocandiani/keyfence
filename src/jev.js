@@ -10,7 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const { shape, entropy, edgeOf, LETTERS_ONLY_MIN } = require('./detect');
-const { FORMATTED, commonForm } = require('./forms');
+const { FORMATTED, commonForm, PUBLIC_KEY_LINE } = require('./forms');
 
 function apiKey(cfg) {
   if (process.env[cfg.jev.apiKeyEnv]) return process.env[cfg.jev.apiKeyEnv];
@@ -133,7 +133,7 @@ function candidatesOf(text, skip = [], max = 12) {
   const cue = CUE.test(text);
   // A candidate is the whole run between spaces, with the same edges the rules
   // use: a password can carry any character, so none of them splits it.
-  const words = String(text).split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
+  const words = String(text).replace(PUBLIC_KEY_LINE, ' ').split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
     .map((m) => edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length))));
   for (const w of words) {
     if (seen.has(w) || !mayBeSecret(w, cue)) continue;

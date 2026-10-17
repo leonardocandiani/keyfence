@@ -13,7 +13,7 @@
 
 const { rules } = require('./rules');
 const { entropy } = require('./entropy');
-const { isCamelIdentifier, commonForm } = require('./forms');
+const { isCamelIdentifier, commonForm, PUBLIC_KEY } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
@@ -262,7 +262,7 @@ function scanLabeled(text, message = false) {
       if (call || PLACEHOLDER.test(raw)) continue; // `token = getToken(` is code
       value = codeValue(text, at, quote, raw);
     }
-    if (!value || PLACEHOLDER.test(value)) continue;
+    if (!value || PLACEHOLDER.test(value) || PUBLIC_KEY.test(value)) continue;
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
@@ -394,7 +394,7 @@ const EMAIL = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
 const WORDLIKE = /^(?:[a-z]+|[A-Z][a-z]+|[A-Z]+|\d{1,4}|v\d+)$/;
 
 function contextToken(v, cued) {
-  if (v.length < 16 || PLACEHOLDER.test(v) || EMAIL.test(v) || FILE_NAME.test(v)) return false;
+  if (v.length < 16 || PLACEHOLDER.test(v) || EMAIL.test(v) || FILE_NAME.test(v) || PUBLIC_KEY.test(v)) return false;
   if (/^[a-z]+:\/\//i.test(v) || /^[./~]/.test(v) || /\/.*\//.test(v)) return false;
   if (HEXLIKE.test(v)) return !!cued; // a commit hash or an id, unless the words say key
   // Words joined by separators (relatorio-final-2026, user_id_42, config.db.host)

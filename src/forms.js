@@ -142,4 +142,11 @@ function strongShape(w) {
   return s.length >= 40 && /^[A-Za-z0-9+/_=-]+$/.test(s) && entropy(s) >= 4;
 }
 
-module.exports = { FORMATTED, commonForm, strongShape, isCamelIdentifier, isNameIdentifier, isSessionName, isFileName, isEmail };
+// A public key line (`ssh-ed25519 AAAA... user@host`) opens authorized_keys and is meant to be shared:
+// a label before it ("chave:") must not turn the key type, or the line, into a secret.
+// A private key has its own BEGIN header rule and is untouched.
+const KEY_TYPE = '(?:sk-)?(?:ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521))(?:@openssh\\.com)?';
+const PUBLIC_KEY = new RegExp(`^${KEY_TYPE}(?:\\s+[A-Za-z0-9+/]{20,}={0,3})?(?:\\s|$)`);
+const PUBLIC_KEY_LINE = new RegExp(`${KEY_TYPE}(?:\\s+[A-Za-z0-9+/]{20,}={0,3}(?:[ \\t]+\\S+)?)?`, 'g');
+
+module.exports = { FORMATTED, commonForm, PUBLIC_KEY, PUBLIC_KEY_LINE, strongShape, isCamelIdentifier, isNameIdentifier, isSessionName, isFileName, isEmail };
