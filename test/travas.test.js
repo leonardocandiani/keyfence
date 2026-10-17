@@ -83,6 +83,7 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
     check(`ref com nome de sessão é forma comum (${ref.slice(0, 22)})`, commonForm(ref), 'eventref');
     check(`ref com nome de sessão não é achado por contexto (${ref.slice(0, 22)})`, scan(`[monitor] [nome]: chamaram você\nref: ${ref}`, { ambiguous: true, message: true }).findings.length, 0);
   }
+  check('ref com nome de sessão e tipo do evento é forma comum', commonForm(`CENTRAL-WHATSAPP-aviso-hn9u08zc1k-${H64}`), 'eventref');
   check('nome de sessão com palavra comum depois não ganha forma de ref', commonForm('CENTRAL-WHATSAPP-abcdefghij') === 'eventref', false);
   const evRef = `CENTRAL-WHATSAPP-hn9u08zc1k-${H64}`;
   const peer = 'Another Claude session sent a message:\n';
