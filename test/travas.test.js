@@ -83,6 +83,10 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
     check(`ref com nome de sessão é forma comum (${ref.slice(0, 22)})`, commonForm(ref), 'eventref');
     check(`ref com nome de sessão não é achado por contexto (${ref.slice(0, 22)})`, scan(`[monitor] [nome]: chamaram você\nref: ${ref}`, { ambiguous: true, message: true }).findings.length, 0);
   }
+  for (const ref of [`aviso-leis-1792710180-${H64}`, 'aviso-leis-1792710180-1a2b3c4d', 'aviso-leis-1792710180123-9f8e7d6c']) {
+    check(`marca do aviso entre sessões é forma comum (${ref.slice(0, 22)})`, commonForm(ref), 'eventref');
+  }
+  check('aviso-leis com sufixo que não é hash não ganha forma de ref', commonForm('aviso-leis-1792710180-segredo99') === 'eventref', false);
   check('ref com nome de sessão e tipo do evento é forma comum', commonForm(`CENTRAL-WHATSAPP-aviso-hn9u08zc1k-${H64}`), 'eventref');
   check('nome de sessão com palavra comum depois não ganha forma de ref', commonForm('CENTRAL-WHATSAPP-abcdefghij') === 'eventref', false);
   const evRef = `CENTRAL-WHATSAPP-hn9u08zc1k-${H64}`;
