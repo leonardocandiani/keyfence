@@ -24,6 +24,14 @@ const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toL
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
 const upper = (s) => slug(s).toUpperCase().replace(/-/g, '_');
 
+// An env var name cannot start with a digit: a shell refuses `554498241154_S_WHATSAPP_NET_SECRET`
+// and every line after the first bad one can go unread. A service named after a number (a JID, an id)
+// gets an `ID_` prefix.
+const envName = (parts) => {
+  const name = parts.filter(Boolean).join('_');
+  return /^[0-9]/.test(name) ? `ID_${name}` : name;
+};
+
 function projectName(cwd) {
   let dir = cwd || '';
   try {
@@ -144,10 +152,10 @@ function build(text, items, cwd, hintedLogins = [], opts = {}) {
     let role = d.role;
     for (let n = 2; rec.fields[role] !== undefined && rec.fields[role] !== item.value; n++) role = `${d.role}_${n}`;
     rec.fields[role] = item.value;
-    rec.envNames[role] = d.envName || [upper(rec.service), account && upper(account), role.toUpperCase()].filter(Boolean).join('_');
+    rec.envNames[role] = d.envName || envName([upper(rec.service), account && upper(account), role.toUpperCase()]);
   }
   for (const rec of byAlias.values()) {
-    const base = [upper(rec.service), rec.account && upper(rec.account)].filter(Boolean).join('_');
+    const base = envName([upper(rec.service), rec.account && upper(rec.account)]);
     if (login && (rec.fields.password || rec.fields.pin) && !Object.values(rec.fields).includes(login)) {
       rec.fields.login = login;
       rec.envNames.login = `${base}_LOGIN`;
@@ -160,4 +168,4 @@ function build(text, items, cwd, hintedLogins = [], opts = {}) {
   return [...byAlias.values()];
 }
 
-module.exports = { build, projectName, accountOf, loginIn, slug, structuralName, upper };
+module.exports = { build, projectName, accountOf, loginIn, slug, structuralName, upper, envName };

@@ -133,6 +133,11 @@ const envNames = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).m
   check('repair: the vault value is the whole password', fp.list.some((x) => x.alias === 'hostgator/painel' && x.field === 'password' && x.fp === vault.fingerprint(fp.salt, Buffer.from(whole))), true);
   check('old names: asked once, nothing left to look at next time', (await naming.nameOld({ apply: false, cfg })).length, 0);
 
+  const { envName, upper } = require('../src/credential');
+  check('nome de variável de serviço numérico (JID) ganha o prefixo ID_', envName([upper('554498241154-s-whatsapp-net'), 'SECRET']), 'ID_554498241154_S_WHATSAPP_NET_SECRET');
+  check('nome que já começa com letra não muda', envName([upper('vercel'), '554498241154', 'PASSWORD']), 'VERCEL_554498241154_PASSWORD');
+  check('todo nome gerado de um serviço numérico carrega por shell', /^[A-Za-z_][A-Za-z0-9_]*$/.test(envName([upper('120363025-g-us'), 'TOKEN'])), true);
+
   fs.rmSync(tmp, { recursive: true, force: true });
   const failed = cases.filter((c) => !c.ok);
   for (const c of failed) console.log(`  FAIL ${c.name}: got ${c.got}, want ${c.want}`);
