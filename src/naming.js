@@ -19,7 +19,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { makePrivate, renameRetry } = require('./fsmode');
 const { edgeOf } = require('./detect');
-const { slug, upper, structuralName } = require('./credential');
+const { slug, upper, structuralName, envName } = require('./credential');
 
 const provisionalId = () => crypto.randomBytes(2).toString('hex');
 const isProvisional = (alias) => /^kf\/[0-9a-f]{4}$/.test(alias);
@@ -167,7 +167,7 @@ function renamePlan(rec, named) {
     plan.mappings[role] = { alias, role, environment: rec.environment, named: true };
     // Only the provisional names: a value the capture found already saved under
     // one of the user's own names keeps that name.
-    if (PROVISIONAL_NAME.test(rec.names[role])) plan.envMap[rec.names[role]] = [upper(service), account && upper(account), role.toUpperCase()].filter(Boolean).join('_');
+    if (PROVISIONAL_NAME.test(rec.names[role])) plan.envMap[rec.names[role]] = envName([upper(service), account && upper(account), role.toUpperCase()]);
   }
   return plan;
 }
@@ -283,7 +283,7 @@ async function nameOld({ apply = false, cfg = require('./config').load() } = {})
 // DB_PASS, registered by discover) is never touched.
 const generatedName = (alias, role) => {
   const [service, account] = alias.split('/');
-  return [upper(service), account !== 'default' && upper(account), role.toUpperCase()].filter(Boolean).join('_');
+  return envName([upper(service), account !== 'default' && upper(account), role.toUpperCase()]);
 };
 
 // A variable keyfence named from a loose word and has not looked at since. Older
@@ -355,7 +355,7 @@ async function applyOld(r, vars, cap) {
   if (!r.to || r.to === r.alias) { files.forEach((f) => mark(f, vars.filter((v) => v.file === f))); return; }
   const roles = [...new Set(vars.map((v) => v.role))];
   try { await require('./vault').move(r.alias, { [r.to]: Object.fromEntries(roles.map((x) => [x, x])) }); } catch { /* vault unavailable: the env files still get the names */ }
-  const base = [upper(r.to.split('/')[0]), r.account && upper(r.account)].filter(Boolean).join('_');
+  const base = envName([upper(r.to.split('/')[0]), r.account && upper(r.account)]);
   for (const f of files) {
     const here = vars.filter((v) => v.file === f);
     const map = Object.fromEntries(here.map((v) => [v.name, `${base}_${v.role.toUpperCase()}`]));
@@ -378,7 +378,7 @@ async function repairOld(r, vars, cap) {
   const environment = vars[0].environment || 'dev';
   const vault = require('./vault');
   try { vault.remove(r.alias); await vault.upsert(r.to, fields, { environment, exposed: true }); } catch { /* vault unavailable: the env files are still fixed */ }
-  const base = [upper(r.to.split('/')[0]), r.account && upper(r.account)].filter(Boolean).join('_');
+  const base = envName([upper(r.to.split('/')[0]), r.account && upper(r.account)]);
   const nameOf = (role) => `${base}_${role.toUpperCase()}`;
   for (const f of [...new Set(vars.map((v) => v.file))]) {
     const here = vars.filter((v) => v.file === f);
