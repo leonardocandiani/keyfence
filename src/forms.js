@@ -88,6 +88,10 @@ const isEventRef = (w) => {
   return Boolean(m) && /[a-z]/.test(m[2]) && (Boolean(m[3]) || (Boolean(m[1]) && /\d/.test(m[2])));
 };
 
+// The mark `central sessoes avisar` put after `ref:` until 22/10/2026: `aviso-leis-<epoch>-<8 or 64 hex>`.
+// It names one delivery of a notice between sessions; it opens nothing.
+const isAvisoRef = (w) => /^aviso-leis-\d{10,13}-[0-9a-f]{8}(?:[0-9a-f]{56})?$/.test(w);
+
 // A reference to a variable, not its value: `$NOME`, `${NOME}`, a grep anchor `^NOME=`,
 // an assignment with nothing after the sign `NOME=`. Only when the name is made of words
 // UPPER_SNAKE or lower_snake words (the way variables are named), so a password that
@@ -111,7 +115,7 @@ function commonForm(w) {
   if (FORMATTED(s)) return 'formatted';
   if (isEmail(s)) return 'email';
   if (isMessageId(s)) return 'id';
-  if (isEventRef(s)) return 'eventref';
+  if (isEventRef(s) || isAvisoRef(s)) return 'eventref';
   if (isShortHash(s)) return 'hash';
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
