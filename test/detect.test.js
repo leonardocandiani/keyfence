@@ -58,6 +58,19 @@ for (const f of fsx.readdirSync(srcDir).filter((x) => x.endsWith('.js'))) {
   if (hits.length) { fail++; fps.push(`  false positive in own source src/${f}: ${hits.map((h) => h.rule).join(',')}`); }
 }
 
+// In a message, a password label in front of `NAME=value` points at an assignment:
+// the variable is not the secret, so a flag (one digit) or a public URL is not one.
+for (const [text, secret] of [
+  ['senha: SITE_LIBERADO=1', false],
+  ['password: SITE_LIBERADO=9', false],
+  ['Senha: SITE_PUBLIC_URL=https://exemplo.vercel.app', false],
+  ['senha: DB_PASSWORD=hunter2xyz', true],
+  ['senha: hunter2xyz', true],
+]) {
+  const hit = scan(text, { message: true }).findings.length > 0;
+  if (hit !== secret) { fail++; fps.push(`  assignment after label (${secret ? 'missed' : 'false positive'}): ${text.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9')}`); }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);

@@ -100,6 +100,9 @@ const PASSWORD_LABEL = /senha|pass|pwd|contrase|\bpin\b/i;
 // `senha: SIS_ROBSON_PASSWORD` in a message points at the variable, not a value.
 const ENV_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:PASSWORD|PASS|PWD|TOKEN|KEY|SECRET|LOGIN|URL|PIN)(?:_\d+)?$/;
 
+const ASSIGNMENT = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+=(.*)$/;
+const PUBLIC_URL = /^https?:\/\/[^\s@?#]*$/i;
+
 // A value that is wholly something other than a secret: a reference to one
 // ($VAR, config.db.pass, getPassword()), an identifier or a path.
 function isReference(v) {
@@ -120,7 +123,12 @@ function looksSecret(v, labeled = false, message = false) {
   // an example) is left out. In code the word sits in keys, ternaries and
   // comparisons (`'password' : /TOKEN$/.test(n)`), so there the value is judged.
   const passwordLabel = typeof labeled === 'string' && PASSWORD_LABEL.test(labeled);
-  if (passwordLabel && message) return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v) && !ENV_NAME.test(v);
+  if (passwordLabel && message) {
+    // `senha: SITE_LIBERADO=1` is an assignment: the variable is not the secret, its right side is.
+    const asgn = ASSIGNMENT.exec(v || '');
+    if (asgn) return !PUBLIC_URL.test(asgn[1]) && looksSecret(asgn[1], labeled, message);
+    return !!v && v.length >= 6 && !PLACEHOLDER.test(v) && !DEFAULTS.test(v) && !ENV_NAME.test(v);
+  }
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;
