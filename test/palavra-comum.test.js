@@ -50,6 +50,17 @@ check('CamelCase de 16+ letras ainda vai ao classificador', candidatesOf('chave:
 check('senha: com rótulo explícito continua capturada (trade-off documentado)', scan(`senha: ${zap}`, { message: true }).findings.length, 1);
 check('DB_PASSWORD no arquivo de ambiente continua credencial', isCredential('DB_PASSWORD', 'flamengo'), true);
 
+// Regressão de 30/10/2026: o id de uma conversa pedido a outra sessão ("conversa <uuid>") era julgado
+// "unclear" e travava a consulta ao banco por horas. UUID sem rótulo de registro, ou ao lado de
+// palavra de credencial, continua indo ao classificador (Moskit, Asaas e uazapi emitem chave em UUID).
+const uid = '3f2a9c1e-7b4d-4e86-9a15-c0d2f8b6e471';
+check('UUID depois de "conversa" não vai ao classificador', candidatesOf(`consulte a conversa ${uid} no banco`).length, 0);
+check('UUID entre parênteses depois de "lead 1100 (conversa ...)" não vai', candidatesOf(`o lead 1100 (conversa ${uid}) segue em triagem`).length, 0);
+check('UUID depois de "id:" não vai', candidatesOf(`pedido id: ${uid}`).length, 0);
+check('UUID depois de "token" continua indo', candidatesOf(`o token da instância é ${uid}`).length, 1);
+check('UUID depois de "conversa" mas com "chave" colada continua indo', candidatesOf(`a chave da conversa ${uid}`).length, 1);
+check('UUID solto, sem rótulo, continua indo', candidatesOf(`segue ${uid}`).length, 1);
+
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 let real = 0;
 for (let i = 0; i < 200; i++) if (looksSecret(r(24, LETTERS), 'api_key')) real++;

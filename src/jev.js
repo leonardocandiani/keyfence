@@ -126,6 +126,19 @@ function mayBeSecret(w, cue = false) {
   return digits || symbols || mixedCase || entropy(w) >= 3.5;
 }
 
+// A UUID right after a record noun ("conversa 3f2a...", "lead id: ...") names a row,
+// and a message that points an agent at a row is not handing it a key. Providers do
+// issue keys as UUIDs, so a credential noun in the same three words, or no noun at
+// all, keeps the word a candidate.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RECORD_NOUN = /\b(?:conversa|conversation|chat|lead|pedido|order|ticket|protocolo|atendimento|mensagem|message|cliente|customer|id)\b/i;
+const CREDENTIAL_NOUN = /\b(?:senha|password|passwd|token|key|chave|secret|segredo|credencial|credential|bearer|api|auth|login|acesso|access)\b/i;
+function isLabeledRecordId(w, before) {
+  if (!UUID.test(w)) return false;
+  const near = before.split(/\s+/).filter(Boolean).slice(-3).join(' ');
+  return RECORD_NOUN.test(near) && !CREDENTIAL_NOUN.test(near);
+}
+
 // Candidate words of a prompt, most random-looking first, capped.
 function candidatesOf(text, skip = [], max = 12) {
   const seen = new Set(skip);
@@ -134,9 +147,9 @@ function candidatesOf(text, skip = [], max = 12) {
   // A candidate is the whole run between spaces, with the same edges the rules
   // use: a password can carry any character, so none of them splits it.
   const words = String(text).replace(PUBLIC_KEY_LINE, ' ').split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
-    .map((m) => edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length))));
-  for (const w of words) {
-    if (seen.has(w) || !mayBeSecret(w, cue)) continue;
+    .map((m) => ({ w: edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length)), before: line.slice(0, m.index) })));
+  for (const { w, before } of words) {
+    if (seen.has(w) || !mayBeSecret(w, cue) || isLabeledRecordId(w, before)) continue;
     seen.add(w);
     out.push(w);
   }
