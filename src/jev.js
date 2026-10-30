@@ -131,7 +131,7 @@ function mayBeSecret(w, cue = false) {
 // issue keys as UUIDs, so a credential noun in the same three words, or no noun at
 // all, keeps the word a candidate.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const RECORD_NOUN = /\b(?:conversa|conversation|chat|lead|pedido|order|ticket|protocolo|atendimento|mensagem|message|cliente|customer|id)\b/i;
+const RECORD_NOUN = /\b(?:conversa|conversation|chat|lead|pedido|order|ticket|protocolo|atendimento|mensagem|message|cliente|customer|campanha|campaign|lote|batch|onda|id)\b/i;
 const CREDENTIAL_NOUN = /\b(?:senha|password|passwd|token|key|chave|secret|segredo|credencial|credential|bearer|api|auth|login|acesso|access)\b/i;
 function isLabeledRecordId(w, before) {
   if (!UUID.test(w)) return false;

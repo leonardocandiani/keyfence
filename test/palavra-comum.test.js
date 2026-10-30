@@ -59,6 +59,8 @@ check('UUID entre parênteses depois de "lead 1100 (conversa ...)" não vai', ca
 check('UUID depois de "id:" não vai', candidatesOf(`pedido id: ${uid}`).length, 0);
 check('UUID depois de "token" continua indo', candidatesOf(`o token da instância é ${uid}`).length, 1);
 check('UUID depois de "conversa" mas com "chave" colada continua indo', candidatesOf(`a chave da conversa ${uid}`).length, 1);
+check('UUID depois de "campanha" não vai (onda 1 do plantão, 30/10)', candidatesOf(`consulte a campanha ${uid} da onda 1`).length, 0);
+check('UUID depois de "campaign key" continua indo', candidatesOf(`campaign key ${uid}`).length, 1);
 check('UUID solto, sem rótulo, continua indo', candidatesOf(`segue ${uid}`).length, 1);
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
