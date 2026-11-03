@@ -61,6 +61,13 @@ check('UUID depois de "token" continua indo', candidatesOf(`o token da instânci
 check('UUID depois de "conversa" mas com "chave" colada continua indo', candidatesOf(`a chave da conversa ${uid}`).length, 1);
 check('UUID depois de "campanha" não vai (onda 1 do plantão, 30/10)', candidatesOf(`consulte a campanha ${uid} da onda 1`).length, 0);
 check('UUID depois de "campaign key" continua indo', candidatesOf(`campaign key ${uid}`).length, 1);
+// Regressão de 02/11/2026: o vigia da onda 1 consultava `campanha_id = '<uuid>'` e o execute_sql era barrado.
+check('UUID de SQL: campanha_id = aspas', candidatesOf(`select 1 from atendimento.disparo where campanha_id = '${uid}'`).length, 0);
+check('UUID de SQL: id = aspas sem espaço', candidatesOf(`from atendimento.campanha where id='${uid}'`).length, 0);
+check('UUID de SQL: in (aspas)', candidatesOf(`where d.campanha_id in ('${uid}')`).length, 0);
+check('UUID de SQL: com cast ::uuid', candidatesOf(`where c.id = '${uid}'::uuid`).length, 0);
+check('UUID de SQL: api_key = aspas continua indo', candidatesOf(`where api_key = '${uid}'`).length, 1);
+check('UUID de SQL: coluna sem rótulo de registro continua indo', candidatesOf(`where valor = '${uid}'`).length, 1);
 check('UUID solto, sem rótulo, continua indo', candidatesOf(`segue ${uid}`).length, 1);
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
