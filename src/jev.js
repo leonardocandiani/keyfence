@@ -133,9 +133,14 @@ function mayBeSecret(w, cue = false) {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RECORD_NOUN = /\b(?:conversa|conversation|chat|lead|pedido|order|ticket|protocolo|atendimento|mensagem|message|cliente|customer|campanha|campaign|lote|batch|onda|id)\b/i;
 const CREDENTIAL_NOUN = /\b(?:senha|password|passwd|token|key|chave|secret|segredo|credencial|credential|bearer|api|auth|login|acesso|access)\b/i;
+// In SQL the id arrives quoted, cast and behind a snake_case column (`campanha_id = 'uuid'::uuid`):
+// strip the wrapping and read underscores as word breaks so the noun is still found.
+const bareUuid = (w) => w.replace(/::[a-z_]+$/i, '').replace(/^[('"`\[]+|[)'"`\],;]+$/g, '');
 function isLabeledRecordId(w, before) {
-  if (!UUID.test(w)) return false;
-  const near = before.split(/\s+/).filter(Boolean).slice(-3).join(' ');
+  const glued = /^([\w.]+)=+(.+)$/.exec(w);
+  if (glued) { before = `${before} ${glued[1]}`; w = glued[2]; }
+  if (!UUID.test(bareUuid(w))) return false;
+  const near = before.replace(/_/g, ' ').split(/\s+/).filter(Boolean).slice(-3).join(' ');
   return RECORD_NOUN.test(near) && !CREDENTIAL_NOUN.test(near);
 }
 
