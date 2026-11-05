@@ -513,6 +513,14 @@ function stripHeredocs(cmd) {
 // Reaching for the keyfence vault's key or code from a shell.
 const VAULT_KEY = /\bsecurity\b[^|;&]*\b(?:find-generic-password|dump-keychain|export)\b[^|;&]*keyfence-vault|\bsecurity\s+dump-keychain\b|require\([^)]*keyfence[^)]*\/vault/;
 
+// The value of a message flag is text for a person, not a command. A single-quoted
+// value never expands; a double-quoted one is only stripped when it has no `$` or
+// backtick, so `--mensagem "$(read of the vault)"` is still judged.
+const MESSAGE_FLAG = /(--(?:mensagem|message|texto|legenda|body|msg)(?:=|\s+))(?:'[^']*'|"(?:[^"\\$`]|\\[^$`])*")/g;
+function stripMessageArgs(cmd) {
+  return cmd.replace(MESSAGE_FLAG, '$1""');
+}
+
 function vaultTarget(tool, input, cfg) {
   const { vaultDir } = require('./vault');
   const dir = vaultDir();
@@ -527,7 +535,7 @@ function vaultTarget(tool, input, cfg) {
   if (!SHELL_TOOLS.has(tool)) return null;
   const reader = tool === 'PowerShell' ? PS_READER : READER;
   // Judge each segment on its own: `grep -c K .env && cat .env` must still fail.
-  for (const seg of stripHeredocs(String(input.command || '')).split(/\|\||&&|[|;&\n]/)) {
+  for (const seg of stripMessageArgs(stripHeredocs(String(input.command || ''))).split(/\|\||&&|[|;&\n]/)) {
     if (!reader.test(seg) || SAFE_READ.some((re) => re.test(seg))) continue;
     for (const tok of seg.split(/[\s<>()'"`]+/)) if (tok && hit(tok)) return tok;
   }

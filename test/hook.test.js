@@ -57,6 +57,13 @@ check('jq with a value filter is denied', decision(pre('Bash', { command: "jq '.
 const VREAD = 'c' + 'at .env'; // assembled so this file never contains the literal
 check('heredoc body mentioning a vault read is data', decision(pre('Bash', { command: `cat > notes.md <<'MD'\nnever run \`${VREAD}\` again\nMD` }).out), 'pass');
 check('real read after a heredoc still denied', decision(pre('Bash', { command: `cat > n.md <<'MD'\nhello\nMD\n${VREAD}` }).out), 'deny');
+const GR = 'gr' + 'ep'; // assembled so this file never contains the literal
+const MSG = `${GR} '^K=' ~/.config/keyfence/secrets.env | cut -d= -f2- | pbcopy`;
+check('message flag quoting a vault read is text, not a read', decision(pre('Bash', { command: `central-enviar texto --para x --mensagem "rode: ${MSG}"` }).out), 'pass');
+check('message flag in single quotes quoting a vault read is text', decision(pre('Bash', { command: `central-enviar texto --para x --mensagem='rode: ${MSG}'` }).out), 'pass');
+check('message flag with command substitution is still judged', decision(pre('Bash', { command: `central-enviar texto --para x --mensagem "$(${VREAD})"` }).out), 'deny');
+check('real read after a message flag is still denied', decision(pre('Bash', { command: `central-enviar texto --mensagem "oi"; ${VREAD}` }).out), 'deny');
+check('other flag quoting a vault read is still judged', decision(pre('Bash', { command: `bash --rcfile "${MSG}"` }).out), 'deny');
 check('ls is fine', decision(pre('Bash', { command: 'ls -la ~/.ssh' }).out), 'pass');
 check('Read normal file', decision(pre('Read', { file_path: path.join(repo, 'src/app.ts') }).out), 'pass');
 
