@@ -144,6 +144,13 @@ function isLabeledRecordId(w, before) {
   return RECORD_NOUN.test(near) && !CREDENTIAL_NOUN.test(near);
 }
 
+// `ssh -o BatchMode=yes`: an option of the command line, not a value handed over.
+// A credential noun in the option name keeps the word a candidate.
+function isCliOption(w, before) {
+  const m = /^([A-Za-z]+)=[^=\s]{1,30}$/.exec(w);
+  return Boolean(m) && /(?:^|\s)-o$/.test(before.trimEnd()) && !CREDENTIAL_NOUN.test(m[1]);
+}
+
 // Candidate words of a prompt, most random-looking first, capped.
 function candidatesOf(text, skip = [], max = 12) {
   const seen = new Set(skip);
@@ -154,7 +161,7 @@ function candidatesOf(text, skip = [], max = 12) {
   const words = String(text).replace(PUBLIC_KEY_LINE, ' ').split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
     .map((m) => ({ w: edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length)), before: line.slice(0, m.index) })));
   for (const { w, before } of words) {
-    if (seen.has(w) || !mayBeSecret(w, cue) || isLabeledRecordId(w, before)) continue;
+    if (seen.has(w) || !mayBeSecret(w, cue) || isLabeledRecordId(w, before) || isCliOption(w, before)) continue;
     seen.add(w);
     out.push(w);
   }

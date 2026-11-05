@@ -70,6 +70,16 @@ check('UUID de SQL: api_key = aspas continua indo', candidatesOf(`where api_key 
 check('UUID de SQL: coluna sem rótulo de registro continua indo', candidatesOf(`where valor = '${uid}'`).length, 1);
 check('UUID solto, sem rótulo, continua indo', candidatesOf(`segue ${uid}`).length, 1);
 
+// Regressão de 05/11/2026: `ssh -o <Opção>=<valor> mini` virava candidato, o classificador o salvava no cofre
+// (mini/default, segsclaw/default) e todo ssh seguinte era barrado como "secret seen in this session".
+const optBatch = 'Batch' + 'Mode=yes';
+const optTimeout = 'Connect' + 'Timeout=20';
+check('opção -o do ssh não vai ao classificador', candidatesOf(`ssh -o ${optBatch} mini ls`).length, 0);
+check('duas opções -o do ssh não vão', candidatesOf(`ssh -o ${optBatch} -o ${optTimeout} mini ls`).length, 0);
+check('opção -o do ssh com valor numérico não vai', candidatesOf(`ssh -o ${optTimeout} mini`).length, 0);
+check('Opção=valor fora de -o continua indo', candidatesOf(`segue ${optBatch}`).length, 1);
+check('-o com nome de credencial continua indo', candidatesOf('ssh -o Pass' + 'word=aB3xK9mQ2wZp mini').length, 1);
+
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 let real = 0;
 for (let i = 0; i < 200; i++) if (looksSecret(r(24, LETTERS), 'api_key')) real++;
