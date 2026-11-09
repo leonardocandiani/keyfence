@@ -572,6 +572,21 @@ function toolText(tool, input) {
   return [input.content, input.new_string, input.edits && JSON.stringify(input.edits), input.new_source].filter(Boolean).join('\n');
 }
 
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+
+// Is this value stored in an env file of the cofre (the global file or the cwd's .env)?
+function inCofre(value, cfg) {
+  const { parseEnv } = require('./capture');
+  const capture = (cfg && cfg.capture) || {};
+  const globalFile = String(capture.globalFile || '~/.config/keyfence/secrets.env').replace(/^~(?=\/)/, os.homedir());
+  for (const f of [globalFile, path.join(process.cwd(), '.env')]) {
+    let src = '';
+    try { src = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    for (const v of parseEnv(src).values()) if (v === value) return true;
+  }
+  return false;
+}
+
 function judge(d, cfg) {
   const tool = String(d.tool_name || '');
   const input = d.tool_input || {};
@@ -628,7 +643,9 @@ function judge(d, cfg) {
   }
 
   if (cfg.egress.blockNewSecretsInTrackedFiles && file && text && !/\.(example|sample|template)$/.test(file)) {
-    const f = scan(text).findings.find((x) => x.confidence === 'high');
+    // A fixture in a test file is not a leak, but only when the value is not one the
+    // cofre holds: vaultHit above covers the vault, `inCofre` covers the env files.
+    const f = scan(text).findings.find((x) => x.confidence === 'high' && !(TEST_FILE.test(file) && !inCofre(x.value, cfg)));
     if (!f && presignedSpans(text).length && gitTracks(file)) {
       return deny(`This write puts a pre-signed storage URL into ${file}, which git tracks. The link is a temporary grant: keep it out of the repository.`);
     }

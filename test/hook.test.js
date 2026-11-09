@@ -92,6 +92,17 @@ check('MCP env store is allowed', decision(pre('mcp__vercel__create_project_env'
 check('write key to tracked file', decision(pre('Write', { file_path: path.join(repo, 'config.ts'), content: `export const k = "${pasted}";` }).out), 'deny');
 check('write key to .env (ignored)', decision(pre('Write', { file_path: path.join(repo, '.env'), content: `STRIPE_KEY=${pasted}` }).out), 'pass');
 check('Edit with key into tracked file', decision(pre('Edit', { file_path: path.join(repo, 'a.js'), old_string: 'x', new_string: `k='${pasted}'` }).out), 'deny');
+{
+  const fixture = `const AUTH = "${gen('bearer')}";`;
+  check('fixture bearer in a *.test.ts passes', decision(pre('Write', { file_path: path.join(repo, 'api.test.ts'), content: fixture }).out), 'pass');
+  check('fixture bearer in a *.spec.js passes', decision(pre('Edit', { file_path: path.join(repo, 'api.spec.js'), old_string: 'x', new_string: fixture }).out), 'pass');
+  check('the same fixture in a non-test tracked file still blocks', decision(pre('Write', { file_path: path.join(repo, 'api.ts'), content: fixture }).out), 'deny');
+  const stored = gen('bearer').split(' ').pop();
+  fs.mkdirSync(path.dirname(globalEnv), { recursive: true });
+  fs.writeFileSync(globalEnv, `GW_TOKEN=${stored}\n`);
+  check('a value held by the cofre blocks even in a *.test.ts', decision(pre('Write', { file_path: path.join(repo, 'api.test.ts'), content: `const AUTH = "Bearer ${stored}";` }).out), 'deny');
+  fs.rmSync(globalEnv, { force: true });
+}
 check('local command with key passes', decision(pre('Bash', { command: `printf %s ${pasted} | wc -c` }).out), 'pass');
 check('unrelated command passes', decision(pre('Bash', { command: 'git status' }).out), 'pass');
 
