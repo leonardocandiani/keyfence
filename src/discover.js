@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { scan, looksSecret } = require('./detect');
+const { eachLine } = require('./lines');
 const { parseEnv, NAMES } = require('./capture');
 const { projectName, slug } = require('./credential');
 
@@ -155,8 +156,14 @@ function exposedValues(values) {
     let files = [];
     try { files = fs.readdirSync(path.join(root, d)).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(root, d, f)); } catch { continue; }
     for (const f of files.filter((x) => { try { return fs.statSync(x).mtimeMs > since; } catch { return false; } })) {
-      const text = fs.readFileSync(f, 'utf8');
-      for (const [v, e] of needles) if (!seen.has(v) && text.includes(e)) seen.add(v);
+      try {
+        for (const line of eachLine(f)) {
+          for (const [v, e] of needles) if (!seen.has(v) && line.includes(e)) seen.add(v);
+          if (seen.size === needles.length) break;
+        }
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e; // a log pruned while the scan ran
+      }
     }
   }
   return seen;
@@ -199,4 +206,4 @@ async function discover({ roots, depth = 5, apply = false, home = os.homedir() }
   return { records: out, files: new Set(recs.flatMap((r) => r.places.map((p) => p.file))).size };
 }
 
-module.exports = { discover, isCredential, inventory };
+module.exports = { discover, isCredential, inventory, exposedValues };

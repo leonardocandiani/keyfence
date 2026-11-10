@@ -14,6 +14,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { makePrivate } = require('./fsmode');
+const { eachLine } = require('./lines');
 const { scan } = require('./detect');
 const { build } = require('./credential');
 const { parseEnv } = require('./capture');
@@ -64,15 +65,19 @@ function messagesWith(values, root, { pieces = false } = {}) {
   const found = new Map();
   const escaped = values.map((v) => JSON.stringify(v).slice(1, -1));
   for (const file of sessionLogs()) {
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      if (!escaped.some((e) => line.includes(e))) continue;
-      const msg = userMessage(line);
-      if (!msg) continue;
-      const seen = new Set([...scan(msg.text, { message: true }).findings.map((f) => f.value), ...require('./jev').candidatesOf(msg.text, [], 50)]);
-      for (const v of values) {
-        const whole = seen.has(v) ? null : pieces && v.length >= 4 ? [...seen].find((d) => d.includes(v)) : null;
-        if ((seen.has(v) || whole) && better(msg, found.get(v), root)) found.set(v, whole ? { ...msg, whole } : msg);
+    try {
+      for (const line of eachLine(file)) {
+        if (!escaped.some((e) => line.includes(e))) continue;
+        const msg = userMessage(line);
+        if (!msg) continue;
+        const seen = new Set([...scan(msg.text, { message: true }).findings.map((f) => f.value), ...require('./jev').candidatesOf(msg.text, [], 50)]);
+        for (const v of values) {
+          const whole = seen.has(v) ? null : pieces && v.length >= 4 ? [...seen].find((d) => d.includes(v)) : null;
+          if ((seen.has(v) || whole) && better(msg, found.get(v), root)) found.set(v, whole ? { ...msg, whole } : msg);
+        }
       }
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e; // a log pruned while the scan ran
     }
   }
   return found;
