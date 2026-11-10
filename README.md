@@ -116,6 +116,25 @@ keyfence: vault record  sis/robson  (login, password)
 | `PAINEL_PASSWORD=...` | the name you wrote |
 | a link with `?key=...` | the API's host plus the kind: `PLACAFIPE_API_KEY` |
 
+**An account at a third-party site.** The session never creates an account or
+types a password into a site; the user does that part and hands the result over
+in the chat. Starting the message with `conta <service>:` names the credential
+for good at once, with no provisional code:
+
+```
+you:      conta teste-x: login leo.teste@exemplo.com, senha: ********, recuperação: rec@exemplo.com
+keyfence: gravado como $TESTE_X_LEO_LOGIN e $TESTE_X_LEO_PASSWORD (tam 21 e 12)
+          the recovery e-mail goes with the account: $TESTE_X_LEO_RECOVERY_EMAIL
+```
+
+In that form `senha <value>` counts without the colon (a plain word, like
+`senha ainda não tenho`, is not saved: the value needs 4 or more characters and
+a digit, a symbol or mixed case). A message that mentions 2FA, a code by e-mail
+or SMS, or an authenticator app tells the agent that step is the user's: it
+never asks for, reads or relays the code. `keyfence conta <service>` lists what
+is saved for the service (names and roles, never a value) and what is missing:
+login, password, token, recovery e-mail.
+
 **Named by context, not by a loose word.** When nothing in the value itself
 names it (no provider format, no name you wrote, no link), the credential is
 saved at once under a provisional code, `kf/7f3a` and `KF_7F3A_PASSWORD`, so
@@ -511,6 +530,9 @@ npm test
   label are not credentials, real keys and explicit passwords still are, and
   `maintain` removes the old false captures without touching anything else.
 - `test/cli.test.js`: CLI contract.
+- `test/conta.test.js`: `conta <service>:` names the credential at once, the one-line
+  confirmation, the 2FA note, the recovery e-mail, and `keyfence conta` listing what
+  exists and what is missing without printing a value.
 - `test/jev.test.js`: the classifier's privacy contract; a live check runs when
   `TYPESAFE_API_KEY` is set.
 

@@ -46,6 +46,7 @@ const COMMANDS = {
   discover: { flags: ['--apply', '--depth'], usage: 'keyfence discover [dir...] [--depth N] [--apply]  (find credentials in .env files and shell rc files; without --apply: list only)' },
   maintain: { flags: ['--apply', '--install', '--uninstall'], usage: 'keyfence maintain [--apply] [--install|--uninstall]  (tidy, merge duplicates, list what to rotate; --install runs it daily)' },
   tidy: { flags: ['--apply'], usage: 'keyfence tidy [env-file...] [--apply]  (without --apply: show the plan only)' },
+  conta: { flags: [], usage: 'keyfence conta <serviço>  (what is saved for an account at a service and what is missing: login, password, token, recovery e-mail)' },
   secret: { flags: [], usage: 'keyfence secret add|rotate|list|show|policy|revoke|reactivate|rm (values only at a hidden terminal prompt)' },
 };
 const VALUE_FLAGS = new Set(['--settings', '--depth']);
@@ -323,6 +324,12 @@ function renderTidy(rows, notes, applied) {
   return `${out.join('\n')}\n`;
 }
 
+function cmdConta(flags, args) {
+  const r = require('./conta').report(args[0]);
+  if (r.error) return fail(r.error, r.hint);
+  process.stdout.write(r.text);
+}
+
 function main(argv = process.argv.slice(2)) {
   const [cmd, ...rest] = argv;
   if (!cmd) return cmdHome();
@@ -335,7 +342,7 @@ function main(argv = process.argv.slice(2)) {
   if (parsed.error) return fail(parsed.error, parsed.hint);
   if (parsed.flags.help) return process.stdout.write(`usage: ${COMMANDS[cmd].usage}\n`);
   try {
-    const res = ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig, tidy: cmdTidy, maintain: cmdMaintain, discover: cmdDiscover })[cmd](parsed.flags, parsed.args);
+    const res = ({ scan: cmdScan, rules: cmdRules, install: cmdInstall, uninstall: cmdUninstall, config: cmdConfig, tidy: cmdTidy, maintain: cmdMaintain, discover: cmdDiscover, conta: cmdConta })[cmd](parsed.flags, parsed.args);
     if (res && res.catch) res.catch((e) => fail(e.message, null, 1));
   } catch (e) {
     fail(e.message, null, 1);

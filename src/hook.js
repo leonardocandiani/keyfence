@@ -381,12 +381,14 @@ async function captureText(ctx, keep, logins = []) {
       : { provisional: naming.provisionalId() };
     const lines = [];
     const pending = [];
+    const sizes = [];
     for (const rec of build(prompt, keep, d.cwd, logins, opts)) {
       const items = Object.entries(rec.fields).map(([role, value]) => ({ value, rule: role, envName: rec.envNames[role] }));
       const r = save(items, prompt, d.cwd, cfg);
       require('./capture').remember(r.file, Object.fromEntries(r.saved.map((x) => [x.name, { alias: rec.alias, role: x.rule, environment: rec.environment }])));
       mark(d.session_id, r.saved.map((x) => ({ d: 'store', n: x.name, file: r.file, h: hash(x.value), rule: x.rule })), ttl);
       const stored = await storeInVault(rec, cfg);
+      sizes.push(...r.saved.map((x) => ({ name: x.name, size: x.value.length })));
       const names = r.saved.map((x) => `${x.rule} $${x.name}${x.reused ? ' (already saved)' : ''}`).join(', ');
       lines.push(`${rec.alias} [${names}] in ${r.project ? "the project's git-ignored" : 'the private'} ${r.file}${stored}`);
       if (rec.provisional) {
@@ -398,10 +400,29 @@ async function captureText(ctx, keep, logins = []) {
     return `The user's message contains a credential. keyfence saved it as ${lines.join('; ')}. ` +
       (namingStarted ? 'That name is a provisional code: keyfence is working out from the message which service it is for and will rename it in the vault and the env file; the new names arrive with your next tool result. Until then use these. ' : '') +
       'Work with it by name from now on: reference the variables in commands (keyfence loads them into any Bash command that uses them) or load the file in code. ' +
-      'Never repeat a value in replies, code, comments, logs or commit messages.';
+      'Never repeat a value in replies, code, comments, logs or commit messages. ' +
+      confirmLine(sizes, namingStarted) + secondFactorNote(prompt);
   } catch {
     return null;
   }
+}
+
+// One line for the user, in Portuguese, with names and lengths only. While a name
+// is provisional the confirmation waits for the final one.
+function confirmLine(sizes, provisional) {
+  if (!sizes.length || provisional) return '';
+  const list = sizes.map((x) => `$${x.name}`).join(' e ');
+  const lens = sizes.map((x) => x.size).join(' e ');
+  return `Confirm to the user in one line, names and lengths only, in this form: "gravado como ${list} (tam ${lens})". `;
+}
+
+// A service that asks for a second factor or a code sent to the user: that step is
+// the user's. The agent neither asks for the code nor tries to get around it.
+const SECOND_FACTOR = /\b(?:2fa|mfa|otp|dois fatores|verifica[cç][aã]o em (?:duas|2) etapas|autenticador|authenticator|c[oó]digo (?:por|no|via) e-?mail|c[oó]digo (?:por|no|via) sms)\b/i;
+function secondFactorNote(prompt) {
+  return SECOND_FACTOR.test(prompt)
+    ? "This account asks for a second factor or a code sent to the user: that step is the user's. Tell the user it is theirs to do, and never ask for, read or relay that code. "
+    : '';
 }
 
 async function storeInVault(rec, cfg) {
@@ -468,7 +489,9 @@ async function onPrompt(d, cfg) {
   const prompt = stripNotTyped(String(d.prompt || '').slice(0, MAX_SCAN));
   if (!prompt || /^\s*<task-notification>/.test(prompt) || notTyped(d, prompt)) return;
   const ttl = cfg.ttlHours * 3600e3;
-  const { findings, ambiguous } = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
+  const scanned = scan(prompt, { ambiguous: cfg.taintAmbiguousFromPrompt, message: true });
+  const { ambiguous } = scanned;
+  const findings = [...scanned.findings, ...require('./credential').contaItems(prompt, [...scanned.findings, ...ambiguous].map((i) => i.value))];
   const items = [...findings, ...ambiguous];
   // A value written in groups (a Google app password) is used with or without the spaces.
   const joined = items.filter((i) => /\s/.test(i.value)).map((i) => ({ ...i, value: i.value.replace(/\s+/g, '') }));
