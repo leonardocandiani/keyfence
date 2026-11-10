@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { scan, looksSecret } = require('./detect');
-const { eachLine } = require('./lines');
+const { eachLineWith } = require('./lines');
 const { parseEnv, NAMES } = require('./capture');
 const { projectName, slug } = require('./credential');
 
@@ -150,6 +150,7 @@ function exposedValues(values) {
   const since = Date.now() - 120 * 86400e3;
   const seen = new Set();
   const needles = values.map((v) => [v, JSON.stringify(v).slice(1, -1)]);
+  const patterns = needles.map(([, e]) => e);
   let dirs = [];
   try { dirs = fs.readdirSync(root); } catch { return seen; }
   for (const d of dirs) {
@@ -157,7 +158,7 @@ function exposedValues(values) {
     try { files = fs.readdirSync(path.join(root, d)).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(root, d, f)); } catch { continue; }
     for (const f of files.filter((x) => { try { return fs.statSync(x).mtimeMs > since; } catch { return false; } })) {
       try {
-        for (const line of eachLine(f)) {
+        for (const line of eachLineWith(f, patterns)) {
           for (const [v, e] of needles) if (!seen.has(v) && line.includes(e)) seen.add(v);
           if (seen.size === needles.length) break;
         }

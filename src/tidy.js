@@ -14,7 +14,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { makePrivate } = require('./fsmode');
-const { eachLine } = require('./lines');
+const { eachLineWith } = require('./lines');
 const { scan } = require('./detect');
 const { build } = require('./credential');
 const { parseEnv } = require('./capture');
@@ -66,8 +66,7 @@ function messagesWith(values, root, { pieces = false } = {}) {
   const escaped = values.map((v) => JSON.stringify(v).slice(1, -1));
   for (const file of sessionLogs()) {
     try {
-      for (const line of eachLine(file)) {
-        if (!escaped.some((e) => line.includes(e))) continue;
+      for (const line of eachLineWith(file, escaped)) {
         const msg = userMessage(line);
         if (!msg) continue;
         const seen = new Set([...scan(msg.text, { message: true }).findings.map((f) => f.value), ...require('./jev').candidatesOf(msg.text, [], 50)]);
