@@ -6,7 +6,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { eachLine } = require('../src/lines');
+const { eachLine, eachLineWith } = require('../src/lines');
 const { exposedValues } = require('../src/discover');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'keyfence-lines-'));
@@ -21,6 +21,18 @@ fs.writeFileSync(file, 'a\nb\n');
 check('trailing newline adds no empty line', [...eachLine(file, 2)], ['a', 'b']);
 fs.writeFileSync(file, '');
 check('empty file yields nothing', [...eachLine(file)], []);
+
+const mixed = ['nada aqui', 'tem tok.en+1 no meio', 'ação ✓ tok.en+1 e [x](y) 😀', 'dois tok.en+1 e outro-valor tok.en+1', '', 'só outro-valor', 'tokxen+1 não casa', 'fim com tok.en+1'];
+for (const tail of ['', '\n']) {
+  fs.writeFileSync(file, mixed.join('\n') + tail);
+  const want = [...eachLine(file)].filter((l) => l.includes('tok.en+1') || l.includes('outro-valor'));
+  for (const size of [1, 2, 3, 5, 7, 11, 64, 4096]) check(`eachLineWith block ${size}${tail ? ' with trailing newline' : ''} equals the filtered lines`, [...eachLineWith(file, ['tok.en+1', 'outro-valor'], size)], want);
+}
+fs.writeFileSync(file, mixed.join('\n'));
+check('a needle with regex characters matches only itself', [...eachLineWith(file, ['tok.en+1'])].includes('tokxen+1 não casa'), false);
+check('an empty needle keeps every line, as includes("") did', [...eachLineWith(file, ['zzz', ''], 5)], [...eachLine(file, 5)]);
+check('no needles yields nothing', [...eachLineWith(file, [])], []);
+check('the last line without newline is matched', [...eachLineWith(file, ['fim com'], 3)], ['fim com tok.en+1']);
 
 const root = path.join(tmp, 'projects', 'p1');
 fs.mkdirSync(root, { recursive: true });
