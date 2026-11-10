@@ -16,6 +16,11 @@ const cap = require('./capture');
 const ROLE = { PASSWORD: 'password', API_KEY: 'api_key', TOKEN: 'token', PIN: 'pin', CREDENTIAL: 'secret', SECRET: 'secret' };
 const LOGIN_LABEL = /(?:^|[\s,;(])(?:login|usu[aá]rio|user(?:name)?|e-?mail|conta|account)\s*[:=]\s*["']?([^\s"',;]+)/gi;
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+// "conta teste-x: login ..., senha ..." names the service outright, so the name is final
+// the moment the message is saved; the recovery e-mail is kept with the account.
+const CONTA_RE = /(?:^|\n)[ \t]*conta[ \t]+([A-Za-z0-9][A-Za-z0-9._-]{1,31})[ \t]*:/i;
+const NOT_A_SERVICE = /^(?:login|senha|password|usu[aá]rio|user|username|e-?mail|token|key|chave|conta|account)$/i;
+const RECOVERY_RE = /(?:e-?mail\s+(?:de\s+)?recupera[cç][aã]o|recupera[cç][aã]o|recovery(?:\s+e-?mail)?)\s*[:=]\s*["']?([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/i;
 const URL_RE = /https?:\/\/[^\s"'<>]+/g;
 const PROD = /\b(?:produ[cç][aã]o|production|prod)\b/i;
 const TEST = /\b(?:homolog\w*|staging|sandbox|ambiente de teste|test environment)\b/i;
@@ -45,8 +50,35 @@ function projectName(cwd) {
 function loginIn(text, secrets, hinted) {
   if (hinted.length) return hinted[0];
   for (const m of text.matchAll(LOGIN_LABEL)) if (!secrets.includes(m[1])) return m[1];
-  const emails = (text.match(EMAIL) || []).filter((e) => !secrets.includes(e));
+  const recovery = recoveryIn(text);
+  const emails = (text.match(EMAIL) || []).filter((e) => !secrets.includes(e) && e !== recovery);
   return emails.length === 1 ? emails[0] : null;
+}
+
+const recoveryIn = (text) => (RECOVERY_RE.exec(text) || [])[1] || null;
+
+// The service the user named with "conta <serviço>:", or ''.
+function serviceHint(text) {
+  const m = CONTA_RE.exec(text);
+  return m && !NOT_A_SERVICE.test(m[1]) ? slug(m[1]) : '';
+}
+
+// In a "conta <serviço>:" message the user is handing over a credential on purpose,
+// so a cue word followed by a value ("senha Zq7#mKp2") counts even without the
+// colon the rules ask for. A plain word is left out: "senha ainda não tenho"
+// must not save "ainda". The value needs 4+ characters and a digit, a symbol or mixed case.
+const CUE_VALUE = /(?:senha|password|passwd|pwd|pass|token|chave|api[\s_-]?key|pin)[ \t]*[:=]?[ \t]*["']?([^\s"',;]+)/gi;
+function contaItems(text, known = []) {
+  if (!serviceHint(text)) return [];
+  const seen = new Set(known);
+  const found = [];
+  for (const m of text.matchAll(CUE_VALUE)) {
+    const value = m[1];
+    if (seen.has(value) || value.length < 4 || !(/[^A-Za-zÀ-ÿ]/.test(value) || (/[a-zà-ÿ]/.test(value) && /[A-ZÀ-ß]/.test(value)))) continue;
+    seen.add(value);
+    found.push({ value, rule: 'labeled', start: m.index + m[0].length - value.length });
+  }
+  return found;
 }
 
 // robson.silva@empresa.com -> robson ; leo -> leo ; a@b.com -> '' (too short to name anything)
@@ -96,6 +128,8 @@ function describeItem(item, text, cwd) {
     return { sure: true, service: slug(cap.hostName(item.host)) || projectName(cwd), role: ROLE[kind === 'SECRET' ? 'API_KEY' : kind] || 'api_key', envName: explicitName(item, text) };
   }
   const { kind } = cap.kindOf(item, text);
+  const hint = serviceHint(text);
+  if (hint) return { sure: true, service: hint, role: ROLE[kind] || 'secret', envName: explicitName(item, text) };
   const at = typeof item.start === 'number' ? item.start : text.indexOf(item.value);
   return { sure: false, service: structuralName(text, cwd, at), role: ROLE[kind] || 'secret', envName: explicitName(item, text) };
 }
@@ -160,6 +194,11 @@ function build(text, items, cwd, hintedLogins = [], opts = {}) {
       rec.fields.login = login;
       rec.envNames.login = `${base}_LOGIN`;
     }
+    const recovery = recoveryIn(text);
+    if (recovery && rec.fields.password && !Object.values(rec.fields).includes(recovery)) {
+      rec.fields.recovery = recovery;
+      rec.envNames.recovery = `${base}_RECOVERY_EMAIL`;
+    }
     if (url && rec.fields.password) {
       rec.fields.url = url;
       rec.envNames.url = `${base}_URL`;
@@ -168,4 +207,4 @@ function build(text, items, cwd, hintedLogins = [], opts = {}) {
   return [...byAlias.values()];
 }
 
-module.exports = { build, projectName, accountOf, loginIn, slug, structuralName, upper, envName };
+module.exports = { build, projectName, accountOf, loginIn, serviceHint, recoveryIn, contaItems, slug, structuralName, upper, envName };
