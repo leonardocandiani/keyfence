@@ -88,6 +88,20 @@ for (const [text, secret] of [
   if (hit !== secret) { fail++; fps.push(`  code under password label (${secret ? 'missed' : 'false positive'}): ${text}`); }
 }
 
+// The same lowercase dotted value typed in a message is still the password (the
+// code rule is off there), and a quoted literal is refused in both modes.
+for (const [text, secret, message] of [
+  ['senha: row.must_change_password', true, true],
+  ['password: abc.defg.hijk_lmn', true, true],
+  ['token: row.must_change_password', true, true],
+  ['must_change_password: row.must_change_password,', true, true],
+  ['senha: "Zk9QwR3vLm7XqT2n"', true, true],
+  ['senha: "Zk9QwR3vLm7XqT2n"', true, false],
+]) {
+  const hit = scan(text, { message }).findings.length > 0;
+  if (hit !== secret) { fail++; fps.push(`  message mode unchanged (${message ? 'message' : 'code'}, ${secret ? 'missed' : 'false positive'}): ${text}`); }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);

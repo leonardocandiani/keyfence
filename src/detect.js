@@ -145,7 +145,7 @@ function looksSecret(v, labeled = false, message = false) {
   // Code read under a label (`must_change_password: row.must_change_password`,
   // `... === 1`): the dots and underscores of a lowercase member access flip case
   // like random text, so this has to be settled before the case-switch rule below.
-  if (codeExpression(v)) return false;
+  if (!message && codeExpression(v)) return false;
   // Under a label, a long value whose case flips like random text is a token even
   // when it happens to end in digits after a `_` (the name_v2 rule below).
   if (labeled && v.length >= 20 && caseSwitches(v) >= 6 && entropy(v) >= 3.5) return true;
