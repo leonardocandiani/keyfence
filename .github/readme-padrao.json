@@ -38,5 +38,32 @@
     "privacy": "the classifier only ever sees the shape of a value (aaa999), never the value",
     "install": "npm install -g github:leonardocandiani/keyfence · keyfence install",
     "license": "MIT"
+  },
+  "translations": {
+    "pt": {
+      "desc": "Impede que segredos vazem das sessões de agentes de código e organiza tudo num cofre local",
+      "typing": [
+        "Cole o token no chat e siga trabalhando",
+        "Salvo como credencial: serviço, conta, login, senha",
+        "Acha as chaves que já estão no disco e organiza",
+        "Barrado no curl, no commit, no MCP e no código"
+      ],
+      "tagline": "Um hook do Claude Code e um cofre local: toda credencial que entra na sessão é guardada com nome e barrada em toda saída.",
+      "pitch": "**keyfence** marca toda credencial que entra numa sessão de agente e guarda como credencial: colada no prompt, impressa por um comando ou já parada num `.env`, ela ganha um registro no cofre local criptografado (`sis/robson`: login e senha), um nome que o agente usa (`$SIS_ROBSON_PASSWORD`) e um bloqueio em toda saída, seja um `curl`, um commit, uma ferramenta MCP ou uma config no código.",
+      "what": {
+        "produto": "hook do Claude Code e cofre local que guarda e organiza credenciais",
+        "plataforma": "macOS, Linux e Windows (Bash e PowerShell)",
+        "captura": "credencial colada de qualquer jeito vira registro: serviço, conta, login, senha",
+        "detecta": "53 formatos · valores com rótulo · links com ?key= · classificador por contexto",
+        "cofre": "AES-256-GCM, chave mestra no Keychain do macOS, nenhum comando imprime valor",
+        "organiza": "discover acha chaves no disco · tidy renomeia as antigas · maintain roda todo dia",
+        "saída": "barrado na rede, no commit, em ferramenta não local, no código e em arquivo do git",
+        "resultado": "a saída das ferramentas chega ao agente com o nome no lugar do valor",
+        "privacidade": "o classificador só vê a forma do valor (aaa999), nunca o valor",
+        "instalação": "npm install -g github:leonardocandiani/keyfence · keyfence install",
+        "licença": "MIT"
+      },
+      "notice": "Sem afiliação ou endosso da Anthropic. \"Claude\" e \"Claude Code\" são marcas da Anthropic."
+    }
   }
 }
