@@ -115,6 +115,16 @@ function isReference(v) {
     || (/^[A-Za-z]+(?:[_-][A-Za-z]+)+$/.test(v) && v.split(/[_-]/).every((w) => /^(?:[a-z]+|[A-Z][a-z]*|[A-Z]+)$/.test(w))); // snake_case, UPPER_SNAKE, kebab
 }
 
+// A member access of lowercase words (`row.must_change_password`, `a.b.c`), alone
+// or with `!`/`!!` in front, or one with a spaced comparison/ternary operator
+// (`c.flag === 1`, `a ? true : false`). A random token has uppercase or digits
+// mixed into its segments, a quoted literal has no spaced operator.
+function codeExpression(v) {
+  const bare = v.replace(/^!+/, '');
+  if (/^[a-z_$][a-z_$]*(?:\.[a-z_$][a-z_$]*)+$/.test(bare)) return true;
+  return /\s(?:[=!]==?|[<>]=?|\?|&&|\|\|)\s/.test(v) && /^!*[A-Za-z_$][\w$.]*\s/.test(v);
+}
+
 // `message` is true for what a person typed: there `Senha: joao.silva99` is the
 // password, while in a file the same shape is code (`password: config.db`).
 function looksSecret(v, labeled = false, message = false) {
@@ -132,6 +142,10 @@ function looksSecret(v, labeled = false, message = false) {
   if (!v || v.length < 8 || PLACEHOLDER.test(v) || DEFAULTS.test(v)) return false;
   if (labeled && HEXLIKE.test(v)) return true;
   if (benignShape(v)) return false;
+  // Code read under a label (`must_change_password: row.must_change_password`,
+  // `... === 1`): the dots and underscores of a lowercase member access flip case
+  // like random text, so this has to be settled before the case-switch rule below.
+  if (!message && codeExpression(v)) return false;
   // Under a label, a long value whose case flips like random text is a token even
   // when it happens to end in digits after a `_` (the name_v2 rule below).
   if (labeled && v.length >= 20 && caseSwitches(v) >= 6 && entropy(v) >= 3.5) return true;
