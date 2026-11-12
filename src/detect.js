@@ -127,7 +127,7 @@ function codeExpression(v) {
 
 // `message` is true for what a person typed: there `Senha: joao.silva99` is the
 // password, while in a file the same shape is code (`password: config.db`).
-function looksSecret(v, labeled = false, message = false) {
+function looksSecret(v, labeled = false, message = false, shape = {}) {
   // In what a person typed, a password label already says what the value is: any
   // character goes, only a value that is wholly something else (a placeholder,
   // an example) is left out. In code the word sits in keys, ternaries and
@@ -145,7 +145,7 @@ function looksSecret(v, labeled = false, message = false) {
   // Code read under a label (`must_change_password: row.must_change_password`,
   // `... === 1`): the dots and underscores of a lowercase member access flip case
   // like random text, so this has to be settled before the case-switch rule below.
-  if (!message && codeExpression(v)) return false;
+  if (!message && !shape.quoted && !shape.compact && codeExpression(v)) return false;
   // Under a label, a long value whose case flips like random text is a token even
   // when it happens to end in digits after a `_` (the name_v2 rule below).
   if (labeled && v.length >= 20 && caseSwitches(v) >= 6 && entropy(v) >= 3.5) return true;
@@ -288,7 +288,10 @@ function scanLabeled(text, message = false) {
     // Unquoted identifier is a variable reference (`auth: isAuthenticatedUser`),
     // unless its case flips like random text: words flip rarely, keys often.
     if (!quote && /^[A-Za-z_$]+$/.test(value) && caseSwitches(value) < value.length / 4) continue;
-    if (!looksSecret(value, label, message)) continue;
+    // `PASSWORD=correct.horse` (no spaces around `=`, the .env and shell form) and a quoted
+    // literal are values; only `key: row.field` or `key = a.b === 1` can be a field read.
+    const compact = !message && /[^\s=]=$/.test(text.slice(Math.max(0, at - 2), at));
+    if (!looksSecret(value, label, message, { quoted: !!quote, compact })) continue;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }
   return out;

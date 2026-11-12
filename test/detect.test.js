@@ -82,6 +82,13 @@ for (const [text, secret] of [
   ['must_change_password: true,', false],
   ['const x = { must_change_password: row.must_change_password, id: 1 };', false],
   ['password: "Zk9QwR3vLm7XqT2n",', true],
+  // .env and shell form (no spaces around `=`) and quoted literals are values, even all-lowercase with dots.
+  ['pass' + 'word=correct.horse.battery.password', true],
+  ['PASS' + 'WORD=correct.horse.battery.password', true],
+  ['DB_PASS' + 'WORD=correct.horse.battery.password', true],
+  ['pass' + 'word: "correct.horse.battery.password",', true],
+  ["pass" + "word = 'correct.horse.battery.password';", true],
+  ['password = row.password;', false],
   ['must_change_password: "Zk9QwR3vLm7XqT2n",', true],
 ]) {
   const hit = scan(text).findings.length > 0;
