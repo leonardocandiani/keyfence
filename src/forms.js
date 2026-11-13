@@ -88,6 +88,10 @@ const isEventRef = (w) => {
   return Boolean(m) && /[a-z]/.test(m[2]) && (Boolean(m[3]) || (Boolean(m[1]) && /\d/.test(m[2])));
 };
 
+// The id the Central gives an autonomy event, passed as `central-enviar texto --autonomia <id>`:
+// `ev_autonomia_<kind>_<epoch ms>_<suffix>`. It names the event whose reply is being sent; it opens nothing.
+const isAutonomiaEventId = (w) => /^ev_autonomia_[a-z0-9]{1,4}_\d{10,13}_[a-z0-9]{4,12}$/.test(w);
+
 // The mark `central sessoes avisar` put after `ref:` until 22/10/2026: `aviso-leis-<epoch>-<8 or 64 hex>`.
 // It names one delivery of a notice between sessions; it opens nothing.
 const isAvisoRef = (w) => /^aviso-leis-\d{10,13}-[0-9a-f]{8}(?:[0-9a-f]{56})?$/.test(w);
@@ -115,7 +119,7 @@ function commonForm(w) {
   if (FORMATTED(s)) return 'formatted';
   if (isEmail(s)) return 'email';
   if (isMessageId(s)) return 'id';
-  if (isEventRef(s) || isAvisoRef(s)) return 'eventref';
+  if (isEventRef(s) || isAvisoRef(s) || isAutonomiaEventId(s)) return 'eventref';
   if (isShortHash(s)) return 'hash';
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
@@ -153,4 +157,4 @@ const KEY_TYPE = '(?:sk-)?(?:ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|
 const PUBLIC_KEY = new RegExp(`^${KEY_TYPE}(?:\\s+[A-Za-z0-9+/]{20,}={0,3})?(?:\\s|$)`);
 const PUBLIC_KEY_LINE = new RegExp(`${KEY_TYPE}(?:\\s+[A-Za-z0-9+/]{20,}={0,3}(?:[ \\t]+\\S+)?)?`, 'g');
 
-module.exports = { FORMATTED, commonForm, PUBLIC_KEY, PUBLIC_KEY_LINE, strongShape, isCamelIdentifier, isNameIdentifier, isSessionName, isFileName, isEmail };
+module.exports = { FORMATTED, commonForm, isAutonomiaEventId, PUBLIC_KEY, PUBLIC_KEY_LINE, strongShape, isCamelIdentifier, isNameIdentifier, isSessionName, isFileName, isEmail };
