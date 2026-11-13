@@ -85,12 +85,15 @@ fs.writeFileSync(cfgFile, JSON.stringify({ jev: { enabled: false }, capture: { g
 const env = { ...process.env, KEYFENCE_CONFIG: cfgFile, KEYFENCE_VAULT_DIR: path.join(tmp, 'vault'), KEYFENCE_VAULT_KEY_FILE: path.join(tmp, 'vk'), KEYFENCE_REGISTRY: path.join(tmp, 'reg.json') };
 const TRIPS = Number(process.env.TRIPS || 60);
 let trips = 0;
+const FIXED = ['~::abcD9efgh9:k', 'abcD9efg:~:k9Zq', 'abcD9efgh9k:~', 'abcD9~/x:k9Zq'];
 for (let i = 0; i < TRIPS; i++) {
   const repo = path.join(tmp, `r${i}`);
   fs.mkdirSync(repo);
   execFileSync('git', ['init', '-q'], { cwd: repo });
   fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n');
-  const v = value('', FIELD);
+  // `~` at the start of the value, or after a `:`, followed by `:` `/` or the end, is a home directory
+  // to bash when the file is sourced: these must come back exactly, not as $HOME.
+  const v = i < FIXED.length ? FIXED[i] : value('', FIELD);
   const prompt = `acesso do painel\n\nUsuário: joao\nSenha: ${v}`;
   spawnSync(process.execPath, [HOOK], { cwd: repo, env, encoding: 'utf8', input: JSON.stringify({ session_id: `whole-${process.pid}-${i}`, hook_event_name: 'UserPromptSubmit', prompt, cwd: repo }) });
   const file = path.join(repo, '.env');
