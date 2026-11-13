@@ -145,6 +145,7 @@ function looksSecret(v, labeled = false, message = false, shape = {}) {
   // Code read under a label (`must_change_password: row.must_change_password`,
   // `... === 1`): the dots and underscores of a lowercase member access flip case
   // like random text, so this has to be settled before the case-switch rule below.
+  if (shape.yaml && /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2,}$/.test(v)) return true;
   if (!message && !shape.quoted && !shape.compact && codeExpression(v)) return false;
   // Under a label, a long value whose case flips like random text is a token even
   // when it happens to end in digits after a `_` (the name_v2 rule below).
@@ -291,7 +292,13 @@ function scanLabeled(text, message = false) {
     // `PASSWORD=correct.horse` (no spaces around `=`, the .env and shell form) and a quoted
     // literal are values; only `key: row.field` or `key = a.b === 1` can be a field read.
     const compact = !message && /[^\s=]=$/.test(text.slice(Math.max(0, at - 2), at));
-    if (!looksSecret(value, label, message, { quoted: !!quote, compact })) continue;
+    // YAML: `password: correct.horse.battery` unquoted, alone on its line, is a value. A field
+    // read ends in `,` `;` `)` or is `obj.<key>`; three or more dotted words is never that.
+    const lineStart = text.lastIndexOf('\n', at - 1) + 1;
+    const nl = text.indexOf('\n', at);
+    const ownLine = /^[ \t]*(?:-[ \t]+)?[A-Za-z0-9_.-]+:[ \t]+\S*[^\s,;)}\]][ \t]*\r?$/.test(text.slice(lineStart, nl < 0 ? text.length : nl));
+    const yaml = !message && !quote && ownLine && value.split('.').length >= 3;
+    if (!looksSecret(value, label, message, { quoted: !!quote, compact, yaml })) continue;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }
   return out;
