@@ -132,7 +132,7 @@ function plan(file) {
   return p;
 }
 
-const quote = (v) => (/^[A-Za-z0-9_\-+/=.:@~%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
+const quote = (v) => (/^[A-Za-z0-9_\-+/=.:@%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
 
 async function applyPlan(p) {
   if (!p.add.length && !p.drop.size) return null;

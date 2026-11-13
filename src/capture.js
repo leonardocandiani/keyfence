@@ -227,7 +227,7 @@ function parseEnv(src) {
   return out;
 }
 
-const quote = (v) => (/^[A-Za-z0-9_\-+/=.:@~%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
+const quote = (v) => (/^[A-Za-z0-9_\-+/=.:@%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
 
 /**
  * Save values to the env file. Same value already there: reuse its name.

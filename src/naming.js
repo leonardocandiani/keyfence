@@ -393,7 +393,7 @@ async function repairOld(r, vars, cap) {
   }
 }
 
-const quoteShell = (v) => (/^[A-Za-z0-9_\-+/=.:@~%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
+const quoteShell = (v) => (/^[A-Za-z0-9_\-+/=.:@%,]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
 
 // What build() takes from decide(): each value's service and known account.
 const asOptions = (named) => ({ services: new Map(named.map((n) => [n.value, n.service])), accounts: new Map(named.map((n) => [n.value, n.account])) });
