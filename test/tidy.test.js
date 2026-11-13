@@ -19,7 +19,9 @@ const vault = require('../src/vault');
 
 const cases = [];
 const check = (name, got, want) => cases.push({ name, got, want, ok: got === want });
-const digits = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
+// Distinct digits: a run like `Zq7x00000` falls under the entropy floor of the code-mode scan that
+// tidy uses to rebuild the record, and the rename is (correctly) skipped. 0.28% of random values per use.
+const digits = (n) => [...'0123456789'].sort(() => Math.random() - 0.5).slice(0, n).join('');
 const repo = (name) => { const d = path.join(tmp, name); fs.mkdirSync(d); execFileSync('git', ['init', '-q'], { cwd: d }); return d; };
 function log(cwd, text) {
   const dir = path.join(process.env.KEYFENCE_LOGS_DIR, 'p');
