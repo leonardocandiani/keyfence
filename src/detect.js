@@ -13,7 +13,7 @@
 
 const { rules } = require('./rules');
 const { entropy } = require('./entropy');
-const { isCamelIdentifier, commonForm, PUBLIC_KEY } = require('./forms');
+const { isCamelIdentifier, commonForm, isAutonomiaEventId, PUBLIC_KEY } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
@@ -69,6 +69,7 @@ function benignShape(s) {
     || /^[a-z]+:\/\//i.test(s) // URL (credentials in URLs are a provider rule)
     || /^[a-z]*(?:[A-Z][a-z]{2,}){2,}[0-9]{0,2}$/.test(s) // CamelCaseIdentifier (real words, not random letters)
     || isCamelIdentifier(s) // short words (By, To, Id) between the long ones
+    || isAutonomiaEventId(s) // `central-enviar texto --autonomia ev_autonomia_c_<epoch>_<suffix>`
     || /^[a-z]+(?:[_-][a-z]+){2,}$/.test(s); // snake_or_kebab_identifier
 }
 

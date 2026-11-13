@@ -222,6 +222,14 @@ const sv = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `rod
 check('unlabeled "save": the random word is saved by keyfence', readEnv(capEnv).includes(saveTok), true);
 check('unlabeled "save": no fallback text', /Save it yourself/.test(JSON.stringify(sv)), false);
 fs.writeFileSync(cfgFile, JSON.stringify(BASE));
+// An autonomy event id is a name, not a credential (reply to Ricardo, 13/11/2026): the prompt that
+// carries it saves nothing, and the `central-enviar --autonomia <id>` command that follows goes through.
+const autId = ['ev', 'autonomia', 'c', '1783958520123', 'ab3c9x'].join('_');
+const autPrompt = run({ hook_event_name: 'UserPromptSubmit', cwd: capRepo, prompt: `responda o evento:\n${autId}\ne mande ao ricardo` }).out;
+check('autonomy id: the prompt tells the agent nothing to save', /keyfence saved it|Save it yourself|Do not ask the user/.test(JSON.stringify(autPrompt)), false);
+check('autonomy id: nothing was written to the env file', readEnv(capEnv).includes(autId), false);
+const autCmd = pre('Bash', { command: `central-enviar texto --autonomia ${autId} --para 5511999999999@s.whatsapp.net --mensagem "oi ricardo"` });
+check('autonomy id: central-enviar --autonomia is not denied', decision(autCmd.out), 'pass');
 // --- credential records: the SIS test, as the user sent it ------------------
 const sisRepo = path.join(tmp, 'SIS-api');
 fs.mkdirSync(sisRepo);

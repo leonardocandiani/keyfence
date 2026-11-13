@@ -120,6 +120,24 @@ for (const [text, secret, message] of [
   if (hit !== secret) { fail++; fps.push(`  message mode unchanged (${message ? 'message' : 'code'}, ${secret ? 'missed' : 'false positive'}): ${text}`); }
 }
 
+// The id of an autonomy event (`central-enviar texto --autonomia <id>`) names an event and opens
+// nothing; the same shape without the `ev_autonomia_` prefix is a random token and stays caught.
+{
+  const id = ['ev', 'autonomia', 'c', '1783958520123', 'ab3c9x'].join('_');
+  const rnd = ['qz', 'Kd8fXm2Lp', 't', '4829103847562', 'Rw93kz'].join('_');
+  for (const [text, opts, secret] of [
+    [`central-enviar texto --autonomia ${id} --para x --mensagem oi`, { ambiguous: true }, false],
+    [`central-enviar texto --autonomia ${id} --para x --mensagem oi`, { message: true, ambiguous: true }, false],
+    [`responda o evento:\n${id}\ne mande ao ricardo`, { message: true, ambiguous: true }, false],
+    [id, { message: true, ambiguous: true }, false],
+    [`central-enviar texto --autonomia ${rnd} --para x --mensagem oi`, { ambiguous: true }, true],
+  ]) {
+    const r = scan(text, opts);
+    const hit = r.findings.length + r.ambiguous.length > 0;
+    if (hit !== secret) { fail++; fps.push(`  autonomy event id (${secret ? 'missed' : 'false positive'}): ${text.replace(id, '<ID>').replace(rnd, '<RANDOM>')}`); }
+  }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);
