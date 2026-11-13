@@ -89,6 +89,17 @@ for (const [text, secret] of [
   ['pass' + 'word: "correct.horse.battery.password",', true],
   ["pass" + "word = 'correct.horse.battery.password';", true],
   ['password = row.password;', false],
+  // YAML without quotes, alone on its line, three or more dotted words: a value. Ending in a comma, or obj.field, is a read.
+  ['db:\n  pass' + 'word: correct.horse.battery.staple\n', true],
+  ['- pass' + 'word: correct.horse.battery.staple\n', true],
+  ['pass' + 'word: correct.horse.battery.password', true],
+  ['pass' + 'word: valor.com.pontos', true],
+  ['must_change_password: row.must_change_password\n', false],
+  ['pass' + 'word: correct.horse.battery.staple,\n', false],
+  // Last property of a multi-line object literal has no comma: code, not YAML.
+  ['const u = {\n  id: 1,\n  pass' + 'word: row.user.password\n};\n', false],
+  ['await db.insert({\n  email: x,\n  pass' + 'word: row.user.password\n})\n', false],
+  ['  id: 1,\n  pass' + 'word: row.user.password\n}\n', false],
   ['must_change_password: "Zk9QwR3vLm7XqT2n",', true],
 ]) {
   const hit = scan(text).findings.length > 0;
