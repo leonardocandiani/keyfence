@@ -261,6 +261,19 @@ function codeValue(text, at, quote, raw) {
   return (/=/.test(tok.slice(raw.length)) ? raw : tok).replace(/[.:]+$/, '');
 }
 
+// The last property of a multi-line object literal has no comma, so it looks like YAML.
+// Code if a `{` or `(` opened before the line is still open, or the next non-blank line closes one.
+function insideCodeBlock(text, lineStart, lineEnd) {
+  let depth = 0;
+  for (let i = 0; i < lineStart; i++) {
+    const c = text[i];
+    if (c === '{' || c === '(' || c === '[') depth++;
+    else if ((c === '}' || c === ')' || c === ']') && depth > 0) depth--;
+  }
+  if (depth > 0) return true;
+  return /^[ \t]*[}\])]/.test(text.slice(lineEnd + 1).replace(/^(?:[ \t]*\r?\n)+/, ''));
+}
+
 function scanLabeled(text, message = false) {
   const out = [];
   const re = message ? LABEL : LABEL_CODE;
@@ -297,7 +310,7 @@ function scanLabeled(text, message = false) {
     const lineStart = text.lastIndexOf('\n', at - 1) + 1;
     const nl = text.indexOf('\n', at);
     const ownLine = /^[ \t]*(?:-[ \t]+)?[A-Za-z0-9_.-]+:[ \t]+\S*[^\s,;)}\]][ \t]*\r?$/.test(text.slice(lineStart, nl < 0 ? text.length : nl));
-    const yaml = !message && !quote && ownLine && value.split('.').length >= 3;
+    const yaml = !message && !quote && ownLine && value.split('.').length >= 3 && !insideCodeBlock(text, lineStart, nl < 0 ? text.length : nl);
     if (!looksSecret(value, label, message, { quoted: !!quote, compact, yaml })) continue;
     out.push({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' });
   }
