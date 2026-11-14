@@ -246,13 +246,14 @@ function findTainted(text, list, confirmedOnly = false) {
   return null;
 }
 
-// A file marked for holding a pending word counts only while it still holds one
-// that is not a date or a formatted number.
+// A file marked for holding a pending or unclear word counts only while it still holds one
+// that is not a date, a formatted number or a common form (a glob, a file name).
+const FILE_RECHECK = new Set(['pending', 'unclear']);
 function stillHoldsPending(file, list) {
   try {
     const full = file.replace(/^~(?=\/)/, os.homedir());
     if (fs.statSync(full).size > 4e6) return true;
-    return Boolean(findTainted(fs.readFileSync(full, 'utf8'), list.filter((y) => y.rule === 'pending')));
+    return Boolean(findTainted(fs.readFileSync(full, 'utf8'), list.filter((y) => FILE_RECHECK.has(y.rule))));
   } catch {
     return false;
   }
@@ -328,7 +329,7 @@ function mentionsFile(text, p) {
 function copyLeaving(text, list, cfg) {
   for (const x of list) {
     if (x.d === 'var' && new RegExp(`\\$\\{?${x.n}\\b`).test(text)) return `${x.rule}, copied into $${x.n}`;
-    if (x.d === 'file' && PATH_LIKE.test(x.n) && mentionsFile(text, x.n) && (x.rule !== 'pending' || stillHoldsPending(x.n, list))) return `${x.rule}, copied into ${x.n}`;
+    if (x.d === 'file' && PATH_LIKE.test(x.n) && mentionsFile(text, x.n) && (!FILE_RECHECK.has(x.rule) || stillHoldsPending(x.n, list))) return `${x.rule}, copied into ${x.n}`;
   }
   for (const [, t] of stripHeredocs(text).matchAll(SENDS_FILE)) {
     if (cfg._vault.some((re) => re.test(t))) return `the content of ${t}`;
