@@ -59,6 +59,14 @@ function isFileName(w) {
   return dot > 0 && /^[a-z][a-z0-9]{0,5}$/.test(last.slice(dot + 1)) && stem(last.slice(0, dot)) && /[A-Za-z]{2}/.test(last.slice(0, dot));
 }
 
+// `envios-*.json`, `!ibge/*.csv`, `logs/**/*.log`: a gitignore or shell glob over file names. The wildcard
+// stands for a word, so what is left must be a file name or a path.
+function isGlob(w) {
+  if (!/[*?]/.test(w)) return false;
+  const plain = w.replace(/^[!/]+/, '').replace(/\*+|\?/g, 'wild');
+  return isFileName(plain) || isPath(plain);
+}
+
 // `auth/updateUserByEmail`, `src/app`, `~/projetos/keyfence`: a path whose every part is a word, an
 // identifier or a file name. A base64 chunk with slashes has parts that are none of those.
 function isPath(w) {
@@ -123,6 +131,7 @@ function commonForm(w) {
   if (isShortHash(s)) return 'hash';
   if (isFileName(s)) return 'file';
   if (isPath(s)) return 'path';
+  if (isGlob(s)) return 'glob';
   if (isMarkupTag(s)) return 'markup';
   if (isVarRef(s)) return 'varref';
   if (isSessionName(s)) return 'session';
