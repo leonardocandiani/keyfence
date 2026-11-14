@@ -4,6 +4,7 @@
 // TYPESAFE_API_KEY is set) checks the classifier actually tells disclosure from
 // ordinary talk using shapes alone.
 
+const { commonForm } = require('../src/forms');
 const { mask, classify, isCandidate, candidatesOf, mayBeSecret, judge } = require('../src/jev');
 const { r } = require('./gen');
 
@@ -46,6 +47,20 @@ for (const w of ['*Kq9zPm2x*', 'Senha123*', '*kQzXbTpwRm*', '_Ab3$xYz_']) {
 {
   const msg = '*[T612] Senha da Proteauto* *Estado:* em execução *Fato:* a Central leu o painel. Fonte…';
   check('a [Tn] block about a password has no candidate', candidatesOf(msg).length === 0);
+}
+
+// A gitignore or shell glob names files, it opens nothing: the TRACKER session saw `git commit` of a
+// .gitignore denied as "unclear, copied into" the file, because one pattern of the message that asked for it
+// reached the classifier and came back unclear.
+for (const w of ['envios-*.json', '*.log', '!ibge/*.csv', 'logs/**/*.log', 'reservas/*.csv']) {
+  check(`a glob over file names is not a candidate: ${w}`, !mayBeSecret(w, true) && !mayBeSecret(w) && commonForm(w) === 'glob');
+}
+{
+  const msg = 'atualize o .gitignore com envios-*.json, *.log, !ibge/*.csv e logs/**/*.log';
+  check('a message listing gitignore patterns has no candidate', candidatesOf(msg).length === 0);
+}
+for (const w of ['aB3*kL9?zQ2x', 'Ab*cd9.Xy', 'Kq9*zPm2x!']) {
+  check(`a secret with a wildcard character is still a candidate: ${w}`, mayBeSecret(w, true));
 }
 
 (async () => {

