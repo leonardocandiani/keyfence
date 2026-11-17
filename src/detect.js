@@ -28,6 +28,7 @@ const LABEL_HEAD = new RegExp('(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*' + LABEL
 // In a message a label may carry a qualifier after the keyword: `senha-app-gmail=...`,
 // `token_prod: ...`. Not in code, where `token-count: 4` is a key, not a label.
 const LABEL_MSG_HEAD = new RegExp('(?:^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*' + LABEL_KEYWORDS + LABEL_TAIL + ')' + LABEL_SEP).source;
+const LABEL_AT_START = new RegExp('^' + LABEL_MSG_HEAD, 'i');
 const LABEL = new RegExp(LABEL_MSG_HEAD + /([^\s"'`][^\s"'`,;()[\]{}<>]*)(\(?)/.source, 'gi');
 const LABEL_CODE = new RegExp(LABEL_HEAD + /([^\s"'`,;()[\]{}<>]{8,})(\(?)/.source, 'gi');
 
@@ -285,6 +286,12 @@ function scanLabeled(text, message = false) {
     const at = m.index + m[0].length - raw.length - call.length;
     let value;
     let start = at;
+    // `Senha:` and, on the next line, `token: x`: the second label is not the first one's value, it
+    // opens its own match (the password is after it).
+    if (message && !quote && m[0].slice(0, m[0].length - raw.length - call.length).includes('\n') && LABEL_AT_START.test(text.slice(at))) {
+      re.lastIndex = at - 1;
+      continue;
+    }
     if (message) {
       ({ value, start } = fullValue(text, at, quote));
       // `Senha:` and, on the next line, `login@x.com the-password`: the e-mail is the login, the password

@@ -155,6 +155,15 @@ for (const [text, secret, message] of [
   if (only.findings.some((f) => f.value === 'maria@exemplo.com')) { fail++; fps.push('  label then only a login e-mail: the e-mail is not the secret'); }
 }
 
+// A label whose value is, on the next line, another label (`Senha:` then `token: x`): the second one opens its own
+// match and the password after it is the secret. Found by the Central's property test (PR 983).
+{
+  const pw = ['Kx9', 'mQ2zL!pR7'].join('');
+  for (const text of [`senha:\ntoken : ${pw}`, `senha:\ntoken: ${pw}`, `senha:\nchave = ${pw}`, `senha:\nsenha: ${pw}`]) {
+    if (!scan(text, { message: true }).findings.some((f) => f.value === pw)) { fail++; fps.push(`  label then another label (password missed): ${text.replace(pw, '<PASSWORD>')}`); }
+  }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);
