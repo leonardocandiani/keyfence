@@ -15,7 +15,7 @@ const SEED = Number(process.env.SEED || 20261117);
 // before the value) stay in the run for good. A seed reproduces only with the same number of rounds (each layout
 // takes its values from the one stream), so they always run with FIXED_ROUNDS, whatever ROUNDS says.
 // SEED=<n> runs only that seed, with ROUNDS.
-const FIXED_SEEDS = [44, 56, 87, 160, 192];
+const FIXED_SEEDS = [44, 56, 87, 160, 192, 203, 224, 283];
 const FIXED_ROUNDS = 400;
 const RUNS = process.env.SEED ? [[SEED, ROUNDS]] : [[SEED, ROUNDS], ...FIXED_SEEDS.map((seed) => [seed, FIXED_ROUNDS])];
 let state = SEED >>> 0;
@@ -39,16 +39,21 @@ const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('')
 // reads as one.
 // Nor may it be wholly a plain identifier, file name, e-mail or dotted name (word.word9):
 // by shape alone those are never asked about; a label still captures them.
-// Anywhere, a value that is wholly `$NAME` reads as a variable, and one that is wholly `$(...)` as a
-// command substitution (PLACEHOLDER in src/detect.js), not a password.
-const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v) && !/^\$\(.*\)$/.test(v);
-const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?!"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
+// Anywhere, a value that is wholly `$NAME` reads as a variable, one that is wholly `$(...)` as a command
+// substitution and one that is wholly `<your-password>` as a placeholder (PLACEHOLDER in src/detect.js),
+// not a password.
+const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v) && !/^\$\(.*\)$/.test(v) && !/^<[\w\s.-]+>$/.test(v);
+// In `.env`, `.env` in quotes and JSON the hook reads `UPPER_NAME=rest` as a variable assignment being copied
+// (`OK_56=helSI`); in a `Senha:` line the same text is a password.
+const ENVFIELD = (v) => FIELD(v) && !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+=/.test(v);
+// In running text a word ending in a known file extension (`.js` in any case) is a file name (NOT_A_VALUE in src/jev.js).
+const PROSE = (v) => FIELD(v) && !/\.(?:js|ts|tsx|jsx|md|json|py|sh|html|css|png|jpg|pdf|txt)$/i.test(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?!"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
 const LAYOUTS = [
   ['label', '', FIELD, (v) => `Senha: ${v}`],
   ['login + label', '', FIELD, (v) => `Usuário: joao.silva\nSenha: ${v}`],
-  ['env', '', FIELD, (v) => `DB_PASSWORD=${v}`],
-  ['env quoted', '"\\$`', FIELD, (v) => `DB_PASSWORD="${v}"`],
-  ['json', '"\\', FIELD, (v) => `{"user": "joao", "password": "${v}"}`],
+  ['env', '', ENVFIELD, (v) => `DB_PASSWORD=${v}`],
+  ['env quoted', '"\\$`', ENVFIELD, (v) => `DB_PASSWORD="${v}"`],
+  ['json', '"\\', ENVFIELD, (v) => `{"user": "joao", "password": "${v}"}`],
   ['pasted block', '', FIELD, (v) => `<pasted_content id="a1">\n### Painel\n\nUsuário: joao\nSenha: ${v}\n</pasted_content id="a1">`],
   ['label on next line', '', FIELD, (v) => `senha:\n${v}`],
   ['prose', '', PROSE, (v) => `a senha do painel é ${v} pode usar`],
@@ -93,14 +98,45 @@ for (const [seed, rounds] of RUNS) {
 }
 state = SEED >>> 0;
 
-// Fixed cases, in the layout where the random run once hit them (17/11/2026, `$(` ... `))`): a value wholly
-// shaped like `$(command)` is a placeholder and is not captured; the same value without the closing `)` is
-// a password and comes back whole.
-for (const [v, captured] of [['$(]nEjbSh~JX*!6-Z*^S4D))', false], ['$(nEjbShJX6Z*S4D)', false], ['$(]nEjbSh~JX*!6-Z*^S4D', true], ['$(nEjbShJX6Z*S4D', true]]) {
-  const text = `{"user": "joao", "password": "${v}"}`;
+// Fixed cases: every refusal the generator leaves out on purpose has its own proof here, with the layout that
+// refuses it and one that does not, and every value that once came back in pieces stays as a case.
+//   whole   the value comes back as one finding or one candidate, and no finding is a piece of it
+//   refused nothing comes back: by design (src/detect.js PLACEHOLDER, src/jev.js NOT_A_VALUE, the env assignment)
+const LAYOUT = Object.fromEntries(LAYOUTS.map(([name, , , layout]) => [name, layout]));
+const FIXED_CASES = [
+  // `$(command)` is a command substitution; without the closing `)` it is a password.
+  ['$(]nEjbSh~JX*!6-Z*^S4D))', 'json', 'refused'],
+  ['$(nEjbShJX6Z*S4D)', 'json', 'refused'],
+  ['$(]nEjbSh~JX*!6-Z*^S4D', 'json', 'whole'],
+  ['$(nEjbShJX6Z*S4D', 'json', 'whole'],
+  // `<name>` is a placeholder in every layout.
+  ['<tYT7mdgmc7H2U6vsqkLK>', 'label', 'refused'],
+  ['<tYT7mdgmc7H2U6vsqkLK>', 'json', 'refused'],
+  ['<tYT7mdgmc7H2U6vsqkLK', 'label', 'whole'],
+  // A known file extension, in any case, makes a word of running text a file name; in a `Senha:` line it is a password.
+  ['3Opn2_lV.jS', 'prose period', 'refused'],
+  ['3Opn2_lV.jS', 'prose', 'refused'],
+  ['3Opn2_lV.jS', 'label', 'whole'],
+  ['3Opn2_lVxjS', 'prose period', 'whole'],
+  // `UPPER_NAME=rest` is an assignment in `.env` and JSON; in a `Senha:` line it is a password.
+  ['OK_56=helSI', 'env', 'refused'],
+  ['OK_56=helSI', 'env quoted', 'refused'],
+  ['VRAO8_H4=$:', 'json', 'refused'],
+  ['OK_56=helSI', 'label', 'whole'],
+  ['ok56_x=helSI', 'json', 'whole'],
+  // Passwords with `->` or backticks in running text came back in pieces (scanContextual took the part after the
+  // `>` or between the backticks as a word of its own); seeds 203, 224 and 283 found them.
+  ['d`U9VE4vwo=qKG14-Et`>E0>e)MvkR', 'prose comma', 'whole'],
+  ['.t&eM8->5NbM0/L2ta0Iw3va', 'prose login', 'whole'],
+  ['6<XL\\U->A7H7P0QFQ6qSi=jN5', 'prose comma', 'whole'],
+];
+for (const [v, layoutName, want] of FIXED_CASES) {
+  const text = LAYOUT[layoutName](v);
   const found = scan(text, { message: true }).findings.map((f) => f.value);
-  const whole = found.includes(v) || candidatesOf(text, found, 50).includes(v);
-  if (whole !== captured) fails.set('fixed json', [...(fails.get('fixed json') || []), `${captured ? 'not whole' : 'captured a command substitution'}: ${v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9')}`]);
+  const reached = found.includes(v) || candidatesOf(text, found, 50).includes(v);
+  const pieces = found.some((f) => f !== v && v.includes(f));
+  const got = pieces ? 'in pieces' : reached ? 'whole' : 'refused';
+  if (got !== want) fails.set('fixed case', [...(fails.get('fixed case') || []), `${layoutName}: wanted ${want}, got ${got}: ${v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9')}`]);
 }
 
 // The saved value must come back exactly when the shell loads the file: the

@@ -551,6 +551,11 @@ function scanContextual(text, taken) {
     const next = text.slice(end, end + 2);
     if (prev && !assign && !/[\s"'`(>]/.test(prev)) continue;
     if (next && !/^(?:[\s"'`)]|[.,;:!?](?:\s|$))/.test(next)) continue;
+    // A `>` or a pair of backticks is an edge only when it is itself at the edge of the word: `->` or a
+    // backtick inside a password (`ab->cd9`, `a`b9`>c`) does not make the part after it a word of its own,
+    // or the part is saved alone and the rest of the password stays in the clear.
+    if (!assign && /[>`]/.test(prev) && /[^\s([{,;:]/.test(text[start - 2] || '')) continue;
+    if (/^[`"')][^\s.,;:!?)\]]/.test(text.slice(end, end + 2))) continue;
     // Quotes, backticks and parentheses count as an edge only in pairs: `value`,
     // "value", (value). An unpaired one is a symbol inside a longer password.
     const pair = { '"': '"', "'": "'", '`': '`', '(': ')' };
