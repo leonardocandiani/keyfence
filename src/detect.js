@@ -13,7 +13,7 @@
 
 const { rules } = require('./rules');
 const { entropy } = require('./entropy');
-const { isCamelIdentifier, commonForm, isAutonomiaEventId, PUBLIC_KEY } = require('./forms');
+const { isCamelIdentifier, commonForm, isAutonomiaEventId, isEmail, PUBLIC_KEY } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
 // non-space, non-quote characters after the separator.
@@ -287,6 +287,13 @@ function scanLabeled(text, message = false) {
     let start = at;
     if (message) {
       ({ value, start } = fullValue(text, at, quote));
+      // `Senha:` and, on the next line, `login@x.com the-password`: the e-mail is the login, the password
+      // is the next word (same line, or the line below it).
+      if (!quote && isEmail(value) && m[0].slice(0, m[0].length - raw.length - call.length).includes('\n')) {
+        const next = /^[ \t]*[/|,;:]?[ \t]*(?:\r?\n[ \t]*){0,2}(?=\S)/.exec(text.slice(start + value.length));
+        if (!next) continue;
+        ({ value, start } = fullValue(text, start + value.length + next[0].length, ''));
+      }
       // A Google app password is sixteen letters shown as four groups: `abcd efgh ijkl mnop`.
       if (/^[a-z]{4}$/.test(value) && PASSWORD_LABEL.test(label)) {
         const rest = /^(?: [a-z]{4}){3}(?![A-Za-z0-9])/.exec(text.slice(start + value.length));
