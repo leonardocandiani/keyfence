@@ -95,11 +95,12 @@ async function syncVault(apply) {
 // What the registered env files say each credential holds, across all files. The
 // same field with different values in two files is a conflict for a person.
 function wantedRecords() {
-  const { readRegistry, parseEnv } = require('./capture');
+  const { readRegistry, parseEnv, readText } = require('./capture');
   const wanted = new Map();
   for (const [file, map] of Object.entries(readRegistry().names)) {
-    if (!fs.existsSync(file) || unreadable(file)) continue;
-    const env = parseEnv(fs.readFileSync(file, 'utf8'));
+    const text = fs.existsSync(file) ? readText(file) : null;
+    if (text === null) continue;
+    const env = parseEnv(text);
     for (const [name, m] of Object.entries(map)) {
       if (!env.has(name)) continue;
       if (!wanted.has(m.alias)) wanted.set(m.alias, { fields: {}, environment: m.environment, conflict: false });
@@ -115,10 +116,10 @@ function wantedRecords() {
 // command in `maintain.onFailure` (argv, `{error}` replaced by the message) runs
 // once. A notice that itself fails must not hide the error that caused it.
 function notifyFailure(err) {
-  const cmd = require('./config').load().maintain.onFailure;
-  if (!Array.isArray(cmd) || !cmd.length) return false;
-  const msg = String((err && err.message) || err).slice(0, 200);
   try {
+    const cmd = require('./config').load().maintain.onFailure;
+    if (!Array.isArray(cmd) || !cmd.length) return false;
+    const msg = String((err && err.message) || err).slice(0, 200);
     execFileSync(cmd[0], cmd.slice(1).map((a) => String(a).replace(/\{error\}/g, msg)), { stdio: 'ignore', timeout: 30000 });
     return true;
   } catch { return false; }
@@ -134,8 +135,14 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   const found = await discover({ roots: where, depth: cfg.depth, home, apply });
   const tidied = [];
   const left = registered().filter((x) => fs.existsSync(x));
-  const unreadableFiles = left.filter(unreadable).map((file) => ({ file }));
-  for (const f of left.filter((x) => !unreadableFiles.some((u) => u.file === x))) tidied.push(await tidyFile(f, { apply }));
+  const unreadableFiles = [];
+  for (const f of left) {
+    if (unreadable(f)) { unreadableFiles.push({ file: f }); continue; }
+    try { tidied.push(await tidyFile(f, { apply })); } catch (e) {
+      if (!unreadable(f)) throw e; // evicted between the check and the read
+      unreadableFiles.push({ file: f });
+    }
+  }
   const synced = await syncVault(apply);
   const named = await require('./naming').nameOld({ apply });
   const provisional = require('./naming').cleanProvisional({ apply });

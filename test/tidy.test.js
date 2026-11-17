@@ -117,6 +117,8 @@ function log(cwd, text) {
   check('...with the error in the message', fs.existsSync(aviso) ? fs.readFileSync(aviso, 'utf8') : 'not written', 'keyfence maintain failed: boom: read failed');
   fs.writeFileSync(cfgFile, JSON.stringify({ maintain: { onFailure: ['/nonexistent/aviso-command'] } }));
   check('a notice command that fails does not hide the original error', notifyFailure(new Error('boom')), false);
+  fs.writeFileSync(cfgFile, JSON.stringify({ maintain: null }));
+  check('a config with maintain: null does not throw out of the notifier', notifyFailure(new Error('boom')), false);
   delete process.env.KEYFENCE_CONFIG;
 
   // a value printed by a `!` command is not a typed message, and never the whole secret
