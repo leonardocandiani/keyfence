@@ -2,16 +2,32 @@
 // A secret is captured whole, whatever it contains: any printable character in
 // any position, in the ways people actually paste credentials. Either the rules
 // return the exact value, or the value reaches the classifier as one candidate;
-// never in pieces. Values are random at run time.
+// never in pieces. Values come from a seeded generator: a failure prints the seed,
+// and `SEED=<n> node test/whole-value.test.js` reproduces it exactly.
 
-const crypto = require('crypto');
 const { scan } = require('../src/detect');
 const { candidatesOf } = require('../src/jev');
 const { commonForm } = require('../src/forms');
 
 const ROUNDS = Number(process.env.ROUNDS || 400);
+const SEED = Number(process.env.SEED || 20261117);
+// Seeds that once failed (17/11/2026, the label-on-next-line rules read the `\n` before the label as the one
+// before the value) stay in the run for good. A seed reproduces only with the same number of rounds (each layout
+// takes its values from the one stream), so they always run with FIXED_ROUNDS, whatever ROUNDS says.
+// SEED=<n> runs only that seed, with ROUNDS.
+const FIXED_SEEDS = [44, 56, 87, 160, 192];
+const FIXED_ROUNDS = 400;
+const RUNS = process.env.SEED ? [[SEED, ROUNDS]] : [[SEED, ROUNDS], ...FIXED_SEEDS.map((seed) => [seed, FIXED_ROUNDS])];
+let state = SEED >>> 0;
+function rnd(n) {
+  state = (state + 0x6d2b79f5) >>> 0;
+  let t = state;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * n);
+}
 const PRINTABLE = Array.from({ length: 94 }, (_, i) => String.fromCharCode(33 + i)).join('');
-const pick = (set) => set[crypto.randomInt(set.length)];
+const pick = (set) => set[rnd(set.length)];
 const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('');
 
 // Where a value sits decides what it may contain. On a `Label: value` line (or a
@@ -23,8 +39,9 @@ const without = (bad) => [...PRINTABLE].filter((c) => !bad.includes(c)).join('')
 // reads as one.
 // Nor may it be wholly a plain identifier, file name, e-mail or dotted name (word.word9):
 // by shape alone those are never asked about; a label still captures them.
-// Anywhere, a value that is wholly `$NAME` reads as a variable, not a password.
-const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v);
+// Anywhere, a value that is wholly `$NAME` reads as a variable, and one that is wholly `$(...)` as a
+// command substitution (PLACEHOLDER in src/detect.js), not a password.
+const FIELD = (v) => !/^["'`]/.test(v) && !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v) && !/^\$\(.*\)$/.test(v);
 const PROSE = (v) => FIELD(v) && !/^(?:(?:~|\.{1,2})\/[\w@+.-]*|\/[\w@+.-]+\/[\w@+.-]+)(?:\/[\w@+.-]+)*\/?$/.test(v) && !/[.,;:?!"'`)\]}>]$/.test(v) && !/^[([{<:=]/.test(v) && !/^[)\]}>]/.test(v) && !commonForm(v);
 const LAYOUTS = [
   ['label', '', FIELD, (v) => `Senha: ${v}`],
@@ -44,30 +61,46 @@ const LAYOUTS = [
 function value(bad, fits) {
   const set = without(bad);
   for (;;) {
-    const n = 10 + crypto.randomInt(21);
+    const n = 10 + rnd(21);
     // Guarantees it looks like a password: letters, digits and a symbol somewhere.
     const v = Array.from({ length: n }, () => pick(set));
-    v[crypto.randomInt(n)] = pick('abcdefghijkmnpqrstuvwxyz');
-    v[crypto.randomInt(n)] = pick('ABCDEFGHJKLMNPQRSTUVWXYZ');
-    v[crypto.randomInt(n)] = pick('23456789');
+    v[rnd(n)] = pick('abcdefghijkmnpqrstuvwxyz');
+    v[rnd(n)] = pick('ABCDEFGHJKLMNPQRSTUVWXYZ');
+    v[rnd(n)] = pick('23456789');
     if (fits(v.join(''))) return v.join('');
   }
 }
 
 const fails = new Map();
-for (const [name, bad, fits, layout] of LAYOUTS) {
-  for (let i = 0; i < ROUNDS; i++) {
-    const v = value(bad, fits);
-    const text = layout(v);
-    const found = scan(text, { message: true }).findings.map((f) => f.value);
-    const whole = found.includes(v) || candidatesOf(text, found, 50).includes(v);
-    const pieces = found.some((f) => f !== v && v.includes(f));
-    if (whole && !pieces) continue;
-    const key = `${name}: ${pieces ? 'in pieces' : 'not whole'}`;
-    const shapes = fails.get(key) || [];
-    shapes.push(v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9'));
-    fails.set(key, shapes);
+const failedSeeds = new Set();
+for (const [seed, rounds] of RUNS) {
+  state = seed >>> 0;
+  for (const [name, bad, fits, layout] of LAYOUTS) {
+    for (let i = 0; i < rounds; i++) {
+      const v = value(bad, fits);
+      const text = layout(v);
+      const found = scan(text, { message: true }).findings.map((f) => f.value);
+      const whole = found.includes(v) || candidatesOf(text, found, 50).includes(v);
+      const pieces = found.some((f) => f !== v && v.includes(f));
+      if (whole && !pieces) continue;
+      const key = `${name}: ${pieces ? 'in pieces' : 'not whole'} [seed ${seed}]`;
+      const shapes = fails.get(key) || [];
+      shapes.push(v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9'));
+      fails.set(key, shapes);
+      failedSeeds.add(seed);
+    }
   }
+}
+state = SEED >>> 0;
+
+// Fixed cases, in the layout where the random run once hit them (17/11/2026, `$(` ... `))`): a value wholly
+// shaped like `$(command)` is a placeholder and is not captured; the same value without the closing `)` is
+// a password and comes back whole.
+for (const [v, captured] of [['$(]nEjbSh~JX*!6-Z*^S4D))', false], ['$(nEjbShJX6Z*S4D)', false], ['$(]nEjbSh~JX*!6-Z*^S4D', true], ['$(nEjbShJX6Z*S4D', true]]) {
+  const text = `{"user": "joao", "password": "${v}"}`;
+  const found = scan(text, { message: true }).findings.map((f) => f.value);
+  const whole = found.includes(v) || candidatesOf(text, found, 50).includes(v);
+  if (whole !== captured) fails.set('fixed json', [...(fails.get('fixed json') || []), `${captured ? 'not whole' : 'captured a command substitution'}: ${v.replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9')}`]);
 }
 
 // The saved value must come back exactly when the shell loads the file: the
@@ -112,8 +145,9 @@ for (let i = 0; i < TRIPS; i++) {
 fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 console.log(`round trip: ${trips}/${TRIPS} saved and loaded back exactly`);
 
-const total = LAYOUTS.length * ROUNDS + TRIPS;
+const total = LAYOUTS.length * RUNS.reduce((sum, [, rounds]) => sum + rounds, 0) + TRIPS;
 const failed = [...fails.values()].reduce((s, x) => s + x.length, 0);
-console.log(`whole value: ${total - failed}/${total} captured whole (${ROUNDS} per layout)`);
+console.log(`whole value: ${total - failed}/${total} captured whole (${ROUNDS} per layout, plus ${RUNS.length - 1} fixed seeds)`);
 for (const [k, shapes] of fails) console.log(`  ${k}: ${shapes.length} (e.g. ${shapes.slice(0, 3).join('  ')})`);
+for (const seed of failedSeeds) console.log(`  seed ${seed}: rerun with SEED=${seed} ROUNDS=${seed === SEED ? ROUNDS : FIXED_ROUNDS} node test/whole-value.test.js`);
 process.exitCode = failed ? 1 : 0;

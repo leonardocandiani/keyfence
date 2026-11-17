@@ -164,6 +164,22 @@ for (const [text, secret, message] of [
   }
 }
 
+// Regression of the two label-on-next-line rules above: the match also takes the `\n` before the label, which is
+// not a line break between the label and its value. A password shaped like an e-mail, on a `Senha:` line that has
+// another line above it, is still the password (found by the seeded whole-value test, seeds 44, 56, 87, 160, 192).
+{
+  const mail = ['4k4.@kkkkk.kk', 'x@y9.zz'];
+  const pw = ['Kx9', 'mQ2zL!pR7'].join('');
+  const cases = [
+    ...mail.map((v) => [`Usuário: joao.silva\nSenha: ${v}`, v]),
+    ...mail.map((v) => [`<pasted_content id="a1">\n### Painel\n\nUsuário: joao\nSenha: ${v}\n</pasted_content id="a1">`, v]),
+    [`Usuário: joao\nsenha:\ntoken: ${pw}`, pw],
+  ];
+  for (const [text, secret] of cases) {
+    if (!scan(text, { message: true }).findings.some((f) => f.value === secret)) { fail++; fps.push(`  label after another line, value missed: ${text.replace(secret, '<VALUE>').replace(/\n/g, '\\n')}`); }
+  }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);
