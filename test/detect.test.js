@@ -138,6 +138,23 @@ for (const [text, secret, message] of [
   }
 }
 
+// `Senha:` followed by a login e-mail on the next line: the e-mail is the login, the password is the word that
+// follows it (same line or the line below). Found by the Central's property test (PR 982).
+{
+  const pw = ['Kx9', 'mQ2zL!pR7'].join('');
+  for (const [text, secret] of [
+    [`senha:\nmaria@exemplo.com ${pw}`, true],
+    [`senha:\nmaria@exemplo.com\n${pw}`, true],
+    [`Senha: ${pw}`, true],
+    [`login: maria@exemplo.com\nsenha: ${pw}`, true],
+  ]) {
+    const r = scan(text, { message: true });
+    if (r.findings.some((f) => f.value === pw) !== secret) { fail++; fps.push(`  label then login e-mail (password missed): ${text.replace(pw, '<PASSWORD>')}`); }
+  }
+  const only = scan('senha:\nmaria@exemplo.com', { message: true });
+  if (only.findings.some((f) => f.value === 'maria@exemplo.com')) { fail++; fps.push('  label then only a login e-mail: the e-mail is not the secret'); }
+}
+
 console.log(`positives: ${positives.length - miss.length}/${positives.length} rules caught every round (${ROUNDS} rounds)`);
 miss.forEach((m) => console.log(m));
 console.log(`negatives: ${negatives.length - fps.length}/${negatives.length} clean`);
