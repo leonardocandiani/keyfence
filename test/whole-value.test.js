@@ -12,9 +12,12 @@ const { commonForm } = require('../src/forms');
 const ROUNDS = Number(process.env.ROUNDS || 400);
 const SEED = Number(process.env.SEED || 20261117);
 // Seeds that once failed (17/11/2026, the label-on-next-line rules read the `\n` before the label as the one
-// before the value) stay in the run for good; SEED=<n> runs only that one.
+// before the value) stay in the run for good. A seed reproduces only with the same number of rounds (each layout
+// takes its values from the one stream), so they always run with FIXED_ROUNDS, whatever ROUNDS says.
+// SEED=<n> runs only that seed, with ROUNDS.
 const FIXED_SEEDS = [44, 56, 87, 160, 192];
-const SEEDS = process.env.SEED ? [SEED] : [SEED, ...FIXED_SEEDS];
+const FIXED_ROUNDS = 400;
+const RUNS = process.env.SEED ? [[SEED, ROUNDS]] : [[SEED, ROUNDS], ...FIXED_SEEDS.map((seed) => [seed, FIXED_ROUNDS])];
 let state = SEED >>> 0;
 function rnd(n) {
   state = (state + 0x6d2b79f5) >>> 0;
@@ -70,10 +73,10 @@ function value(bad, fits) {
 
 const fails = new Map();
 const failedSeeds = new Set();
-for (const seed of SEEDS) {
+for (const [seed, rounds] of RUNS) {
   state = seed >>> 0;
   for (const [name, bad, fits, layout] of LAYOUTS) {
-    for (let i = 0; i < ROUNDS; i++) {
+    for (let i = 0; i < rounds; i++) {
       const v = value(bad, fits);
       const text = layout(v);
       const found = scan(text, { message: true }).findings.map((f) => f.value);
@@ -142,9 +145,9 @@ for (let i = 0; i < TRIPS; i++) {
 fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 console.log(`round trip: ${trips}/${TRIPS} saved and loaded back exactly`);
 
-const total = LAYOUTS.length * ROUNDS * SEEDS.length + TRIPS;
+const total = LAYOUTS.length * RUNS.reduce((sum, [, rounds]) => sum + rounds, 0) + TRIPS;
 const failed = [...fails.values()].reduce((s, x) => s + x.length, 0);
-console.log(`whole value: ${total - failed}/${total} captured whole (${ROUNDS} per layout, ${SEEDS.length} seeds)`);
+console.log(`whole value: ${total - failed}/${total} captured whole (${ROUNDS} per layout, plus ${RUNS.length - 1} fixed seeds)`);
 for (const [k, shapes] of fails) console.log(`  ${k}: ${shapes.length} (e.g. ${shapes.slice(0, 3).join('  ')})`);
-for (const seed of failedSeeds) console.log(`  seed ${seed}: rerun with SEED=${seed} node test/whole-value.test.js`);
+for (const seed of failedSeeds) console.log(`  seed ${seed}: rerun with SEED=${seed} ROUNDS=${seed === SEED ? ROUNDS : FIXED_ROUNDS} node test/whole-value.test.js`);
 process.exitCode = failed ? 1 : 0;
