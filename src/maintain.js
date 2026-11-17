@@ -11,7 +11,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const vault = require('./vault');
 const { tidyFile } = require('./tidy');
-const { registered } = require('./capture');
+const { registered, unreadable } = require('./capture');
 const { looksSecret } = require('./detect');
 const { commonForm } = require('./forms');
 
@@ -98,7 +98,7 @@ function wantedRecords() {
   const { readRegistry, parseEnv } = require('./capture');
   const wanted = new Map();
   for (const [file, map] of Object.entries(readRegistry().names)) {
-    if (!fs.existsSync(file)) continue;
+    if (!fs.existsSync(file) || unreadable(file)) continue;
     const env = parseEnv(fs.readFileSync(file, 'utf8'));
     for (const [name, m] of Object.entries(map)) {
       if (!env.has(name)) continue;
@@ -111,6 +111,19 @@ function wantedRecords() {
   return wanted;
 }
 
+// The daily run is headless, so a failure only helps if it reaches someone: the
+// command in `maintain.onFailure` (argv, `{error}` replaced by the message) runs
+// once. A notice that itself fails must not hide the error that caused it.
+function notifyFailure(err) {
+  const cmd = require('./config').load().maintain.onFailure;
+  if (!Array.isArray(cmd) || !cmd.length) return false;
+  const msg = String((err && err.message) || err).slice(0, 200);
+  try {
+    execFileSync(cmd[0], cmd.slice(1).map((a) => String(a).replace(/\{error\}/g, msg)), { stdio: 'ignore', timeout: 30000 });
+    return true;
+  } catch { return false; }
+}
+
 const expandHome = (p, home) => p.replace(/^~(?=\/|$)/, home);
 
 async function maintain({ apply = false, roots = null, home = os.homedir() } = {}) {
@@ -120,7 +133,9 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   const where = roots || cfg.roots.map((r) => expandHome(r, home)).filter((r) => fs.existsSync(r));
   const found = await discover({ roots: where, depth: cfg.depth, home, apply });
   const tidied = [];
-  for (const f of registered().filter((x) => fs.existsSync(x))) tidied.push(await tidyFile(f, { apply }));
+  const left = registered().filter((x) => fs.existsSync(x));
+  const unreadableFiles = left.filter(unreadable).map((file) => ({ file }));
+  for (const f of left.filter((x) => !unreadableFiles.some((u) => u.file === x))) tidied.push(await tidyFile(f, { apply }));
   const synced = await syncVault(apply);
   const named = await require('./naming').nameOld({ apply });
   const provisional = require('./naming').cleanProvisional({ apply });
@@ -129,6 +144,7 @@ async function maintain({ apply = false, roots = null, home = os.homedir() } = {
   return {
     falsePositives,
     trimmedFields,
+    unreadable: unreadableFiles,
     discovered: found.records.filter((r) => r.action === 'new' || r.action === 'added'),
     tidied,
     synced,
@@ -177,4 +193,4 @@ function uninstall() {
   return had;
 }
 
-module.exports = { isCommonWord, isCommonShape, dropFalsePositives, maintain, install, uninstall, LABEL };
+module.exports = { isCommonWord, isCommonShape, dropFalsePositives, maintain, notifyFailure, install, uninstall, LABEL };

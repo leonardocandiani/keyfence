@@ -171,6 +171,10 @@ function readRegistry() {
   }
 }
 const registered = () => readRegistry().files;
+// A file the disk will not hand over (an iCloud file evicted from the Mac answers `-11` to a background job).
+function unreadable(file) {
+  try { fs.readFileSync(file); return false; } catch { return true; }
+}
 function remember(file, names = {}, drop = []) {
   const r = readRegistry();
   if (!r.files.includes(file)) r.files.push(file);
@@ -265,4 +269,4 @@ function save(items, prompt, cwd, cfg) {
   return { file, project, saved };
 }
 
-module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, registered, readRegistry, remember, NAMES, CUE_LABEL };
+module.exports = { save, nameFor, kindOf, hostName, targetFile, parseEnv, registered, unreadable, readRegistry, remember, NAMES, CUE_LABEL };

@@ -237,7 +237,7 @@ async function runJob(jobFile) {
 function cleanProvisional({ apply = false } = {}) {
   const cap = require('./capture');
   const out = [];
-  for (const file of cap.registered().filter((f) => fs.existsSync(f))) {
+  for (const file of cap.registered().filter((f) => fs.existsSync(f) && !cap.unreadable(f))) {
     const env = cap.parseEnv(fs.readFileSync(file, 'utf8'));
     const real = new Set([...env].filter(([n]) => !PROVISIONAL_NAME.test(n)).map(([, v]) => v));
     const drop = [...env].filter(([n, v]) => PROVISIONAL_NAME.test(n) && real.has(v) && !readByCode(n, path.dirname(file))).map(([n]) => n);
@@ -297,7 +297,7 @@ function oldAliases(cap) {
   const sdk = new Set(Object.values(cap.NAMES));
   const byAlias = new Map();
   for (const [file, map] of Object.entries(cap.readRegistry().names)) {
-    if (!fs.existsSync(file)) continue;
+    if (!fs.existsSync(file) || cap.unreadable(file)) continue;
     const env = cap.parseEnv(fs.readFileSync(file, 'utf8'));
     for (const [name, m] of Object.entries(map)) {
       if (!worthNaming(name, m, env, sdk)) continue;

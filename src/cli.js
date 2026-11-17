@@ -268,11 +268,13 @@ async function cmdMaintain(flags) {
   const m = require('./maintain');
   if (flags.install) { const r = m.install(); return process.stdout.write(`maintain: scheduled ${r.schedule}\nplist: ${tilde(r.plist)}\nlog: ${tilde(r.log)}\n`); }
   if (flags.uninstall) return process.stdout.write(m.uninstall() ? 'maintain: schedule removed\n' : 'maintain: no schedule installed (no-op)\n');
-  const r = await m.maintain({ apply: Boolean(flags.apply) });
+  let r;
+  try { r = await m.maintain({ apply: Boolean(flags.apply) }); } catch (e) { if (flags.apply) m.notifyFailure(e); throw e; }
   const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
   const out = [`maintain: ${flags.apply ? 'applied' : 'plan only'} at ${new Date().toISOString()}`];
   out.push(`not_credentials: ${r.falsePositives.length}${r.falsePositives.length ? ` ${flags.apply ? 'removed' : 'to remove'}: ${r.falsePositives.join(', ')} (a common word, not a secret)` : ''}`);
   if (r.trimmedFields.length) out.push(`not_credentials_fields: ${r.trimmedFields.length} ${flags.apply ? 'trimmed' : 'to trim'}: ${r.trimmedFields.map((t) => `${t.alias}[${t.fields.join(',')}]`).join(', ')} (a name or e-mail saved as a secret, next to a real one)`);
+  if (r.unreadable.length) out.push(`unreadable[${r.unreadable.length}]: ${r.unreadable.map((u) => tilde(u.file)).join(', ')} (the disk would not give the file back; left out of this run)`);
   out.push(`discovered: ${r.discovered.length} new credential(s)${r.discovered.length ? `: ${r.discovered.map((x) => x.alias).join(', ')}` : ''}`);
   out.push(renamed.length ? table('renamed', ['file', 'old', 'record', 'new'], renamed) : 'renamed: 0 generic names');
   out.push(r.named.length ? table('named_by_context', ['record', 'now', 'how'], r.named.map((x) => ({ record: x.alias, now: x.to, how: x.action }))) : 'named_by_context: 0 credentials to rename');
