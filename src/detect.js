@@ -286,9 +286,13 @@ function scanLabeled(text, message = false) {
     const at = m.index + m[0].length - raw.length - call.length;
     let value;
     let start = at;
+    // The match may begin with the character before the label (a `\n` from the line above): only a line
+    // break between the label and its value counts as "the value is on the next line".
+    const labelEnd = m.index + (m[0].startsWith(label) ? 0 : 1) + label.length;
+    const valueOnNextLine = text.slice(labelEnd, at).includes('\n');
     // `Senha:` and, on the next line, `token: x`: the second label is not the first one's value, it
     // opens its own match (the password is after it).
-    if (message && !quote && m[0].slice(0, m[0].length - raw.length - call.length).includes('\n') && LABEL_AT_START.test(text.slice(at))) {
+    if (message && !quote && valueOnNextLine && LABEL_AT_START.test(text.slice(at))) {
       re.lastIndex = at - 1;
       continue;
     }
@@ -296,7 +300,7 @@ function scanLabeled(text, message = false) {
       ({ value, start } = fullValue(text, at, quote));
       // `Senha:` and, on the next line, `login@x.com the-password`: the e-mail is the login, the password
       // is the next word (same line, or the line below it).
-      if (!quote && isEmail(value) && m[0].slice(0, m[0].length - raw.length - call.length).includes('\n')) {
+      if (!quote && isEmail(value) && valueOnNextLine) {
         const next = /^[ \t]*[/|,;:]?[ \t]*(?:\r?\n[ \t]*){0,2}(?=\S)/.exec(text.slice(start + value.length));
         if (!next) continue;
         ({ value, start } = fullValue(text, start + value.length + next[0].length, ''));
