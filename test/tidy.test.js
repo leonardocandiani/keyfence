@@ -93,6 +93,34 @@ function log(cwd, text) {
   check('...with the login and the password', (vault.show('sis/robson') || { fields: [] }).fields.sort().join(','), 'login,password');
   check('a second run finds everything in step', (await maintain({ apply: true, roots: [tmp], home: tmp })).synced.every((x) => x.action === 'unchanged'), true);
 
+  // a registered file the disk will not give back (an iCloud file evicted from the Mac answers EDEADLK, `-11`, to a
+  // background job; a directory stands in for it here) is left out and listed, and the run goes on for the others
+  const evicted = path.join(repo('icloud'), '.env');
+  fs.writeFileSync(evicted, `API_KEY=${digits(9)}abcdefgh\n`);
+  remember(evicted, { API_KEY: { alias: 'icloud/default', role: 'password' } });
+  fs.rmSync(evicted);
+  fs.mkdirSync(evicted);
+  let part = null;
+  try { part = await maintain({ apply: true, roots: [tmp], home: tmp }); } catch (e) { check('maintain goes on past a registered file it cannot read', e.message, 'no error'); }
+  check('maintain goes on past a registered file it cannot read', part ? 'ran' : 'stopped', 'ran');
+  check('...and lists the file it left out', part ? part.unreadable.map((u) => u.file).join(',') : 'none', evicted);
+  check('...while the rest is still in step', part ? part.synced.every((x) => x.action === 'unchanged') : false, true);
+
+  // a failed maintenance tells whoever the config names, with the error in the message
+  const aviso = path.join(tmp, 'aviso.txt');
+  const cfgFile = path.join(tmp, 'config-aviso.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ maintain: { onFailure: [process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], process.argv[2])', aviso, 'keyfence maintain failed: {error}'] } }));
+  const { notifyFailure } = require('../src/maintain');
+  check('no onFailure in the config: nothing runs', notifyFailure(new Error('boom')), false);
+  process.env.KEYFENCE_CONFIG = cfgFile;
+  check('onFailure runs the command', notifyFailure(new Error('boom: read failed')), true);
+  check('...with the error in the message', fs.existsSync(aviso) ? fs.readFileSync(aviso, 'utf8') : 'not written', 'keyfence maintain failed: boom: read failed');
+  fs.writeFileSync(cfgFile, JSON.stringify({ maintain: { onFailure: ['/nonexistent/aviso-command'] } }));
+  check('a notice command that fails does not hide the original error', notifyFailure(new Error('boom')), false);
+  fs.writeFileSync(cfgFile, JSON.stringify({ maintain: null }));
+  check('a config with maintain: null does not throw out of the notifier', notifyFailure(new Error('boom')), false);
+  delete process.env.KEYFENCE_CONFIG;
+
   // a value printed by a `!` command is not a typed message, and never the whole secret
   const { messagesWith } = require('../src/tidy');
   const chave = Array.from({ length: 32 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
