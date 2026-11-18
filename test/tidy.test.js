@@ -111,6 +111,9 @@ function log(cwd, text) {
   const cfgFile = path.join(tmp, 'config-aviso.json');
   fs.writeFileSync(cfgFile, JSON.stringify({ maintain: { onFailure: [process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], process.argv[2])', aviso, 'keyfence maintain failed: {error}'] } }));
   const { notifyFailure } = require('../src/maintain');
+  const cfgSem = path.join(tmp, 'config-sem-aviso.json');
+  fs.writeFileSync(cfgSem, JSON.stringify({}));
+  process.env.KEYFENCE_CONFIG = cfgSem;
   check('no onFailure in the config: nothing runs', notifyFailure(new Error('boom')), false);
   process.env.KEYFENCE_CONFIG = cfgFile;
   check('onFailure runs the command', notifyFailure(new Error('boom: read failed')), true);
