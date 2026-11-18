@@ -1,0 +1,22 @@
+name: verificado
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  carimbo:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Linha Verificado no corpo ou no último commit
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bash scripts/verificacao/conferir-carimbo.sh

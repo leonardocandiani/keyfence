@@ -12,6 +12,10 @@ process.env.KEYFENCE_VAULT_DIR = path.join(tmp, 'vault');
 process.env.KEYFENCE_VAULT_KEY_FILE = path.join(tmp, 'vault-key');
 process.env.KEYFENCE_LOGS_DIR = path.join(tmp, 'logs');
 process.env.KEYFENCE_REGISTRY = path.join(tmp, 'registry.json');
+// The suite must never reach the user's real config: maintain.onFailure there runs a real command (it once opened a card on the real board).
+const ISOLATED_CONFIG = path.join(tmp, 'config-isolada.json');
+fs.writeFileSync(ISOLATED_CONFIG, '{}');
+process.env.KEYFENCE_CONFIG = ISOLATED_CONFIG;
 const { tidyFile } = require('../src/tidy');
 const { maintain } = require('../src/maintain');
 const { remember } = require('../src/capture');
@@ -119,7 +123,7 @@ function log(cwd, text) {
   check('a notice command that fails does not hide the original error', notifyFailure(new Error('boom')), false);
   fs.writeFileSync(cfgFile, JSON.stringify({ maintain: null }));
   check('a config with maintain: null does not throw out of the notifier', notifyFailure(new Error('boom')), false);
-  delete process.env.KEYFENCE_CONFIG;
+  process.env.KEYFENCE_CONFIG = ISOLATED_CONFIG;
 
   // a value printed by a `!` command is not a typed message, and never the whole secret
   const { messagesWith } = require('../src/tidy');
