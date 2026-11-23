@@ -44,6 +44,14 @@ const LET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 let sent = 0;
 for (let i = 0; i < 100; i++) if (candidatesOf(`o token é ${r(16, LET)}`).length) sent++;
 check('letras aleatórias de 16 caracteres ainda vão ao classificador (>= 95%)', sent >= 95, true);
+// Fim de frase: a palavra comum com `!`, `?`, `,` ou `;` não é senha (23/11/2026, "nunca esquecer!" virou segredo).
+const B = String.fromCharCode(33);
+check('frase real com "esquecer!" não tem candidato', candidatesOf(`porra agora salve esse acesso aí pra vc nunca esquecer${B} e saber que coisas da SIX QUASAR a gente acessa por aí, bro`).length, 0);
+for (const w of ['esquecer', 'obrigado', 'beleza', 'entendi']) check(`${w}${B} em prosa sobre acesso não vai ao classificador`, candidatesOf(`salve esse acesso aí, ${w}${B}`).length, 0);
+check('Six Quasar em prosa sobre acesso não vai ao classificador', candidatesOf('coisas da SIX QUASAR e da Six Quasar e da sixquasar que a gente acessa').length, 0);
+check('palavra com ! logo depois de "a senha é" ainda vai ao classificador', candidatesOf(`a senha é flamengo${B}`).length, 1);
+check('palavra com ! logo depois de "senha:" ainda vai ao classificador', candidatesOf(`senha: flamengo${B}`).length, 1);
+check('valor misto com ! no meio ainda vai ao classificador', candidatesOf('senha Zq7!xK9m').length, 1);
 check('valor com dígito ainda vai ao classificador', candidatesOf('a senha do banco é aB3xK9mQ2wZp').length, 1);
 check('CamelCase de 16+ letras ainda vai ao classificador', candidatesOf('chave: aBcDeFgHiJkLmNoPqRsT').length, 1);
 
