@@ -106,17 +106,20 @@ const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p
 // Markdown emphasis and a cut-off tail around a plain word: `*Estado:*` and
 // `Proteauto*` in the bold [Tn] blocks the Centrais exchange, `Fonte…` where a
 // reader truncates. What is left is a word, or the block's own `[T612]` tag.
+// `!?,;` close a sentence ("nunca esquecer!", "obrigado!"): a plain word with them is talk, not a
+// password, unless a credential noun sits right before it ("a senha é flamengo!").
 const MARKUP_EDGES = /^[*_~]+|(?:[*_~]+|[:.…]+)+$/gu;
+const SENTENCE_EDGES = /^[*_~]+|(?:[*_~]+|[:.…!?,;]+)+$/gu;
 const PLAIN_WORD = /^(?:\p{Lu}?\p{Ll}+|\p{Lu}+)$/u;
-const isMarkedUpWord = (w) => {
-  const core = w.replace(MARKUP_EDGES, '');
+const isMarkedUpWord = (w, afterCredentialNoun = false) => {
+  const core = w.replace(afterCredentialNoun ? MARKUP_EDGES : SENTENCE_EDGES, '');
   return core !== w && (PLAIN_WORD.test(core) || /^\[T\d{1,5}\]$/.test(core));
 };
 
-function mayBeSecret(w, cue = false) {
+function mayBeSecret(w, cue = false, afterCredentialNoun = false) {
   // A PIN or numeric password is a candidate only when the message talks about access.
   if (cue && /^\d{4,12}$/.test(w)) return true;
-  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w) || commonForm(w) || isMarkedUpWord(w)) return false;
+  if (w.length < 6 || w.length > 256 || NOT_A_VALUE(w) || commonForm(w) || isMarkedUpWord(w, afterCredentialNoun)) return false;
   const digits = /[0-9]/.test(w);
   const symbols = /[^\p{L}\p{N}]/u.test(w);
   // CamelCase alone does not make a short word a candidate: product names
@@ -136,6 +139,8 @@ const CREDENTIAL_NOUN = /\b(?:senha|password|passwd|token|key|chave|secret|segre
 // In SQL the id arrives quoted, cast and behind a snake_case column (`campanha_id = 'uuid'::uuid`):
 // strip the wrapping and read underscores as word breaks so the noun is still found.
 const bareUuid = (w) => w.replace(/::[a-z_]+$/i, '').replace(/^[('"`\[]+|[)'"`\],;]+$/g, '');
+// "a senha é", "token:", "password =": the credential noun is the last thing before the word.
+const NOUN_RIGHT_BEFORE = new RegExp(`${CREDENTIAL_NOUN.source}\\s*(?:(?:é|eh|is|was|foi|=|:)\\s*)?$`, 'i');
 function isLabeledRecordId(w, before) {
   const glued = /^([\w.]+)=+(.+)$/.exec(w);
   if (glued) { before = `${before} ${glued[1]}`; w = glued[2]; }
@@ -161,7 +166,7 @@ function candidatesOf(text, skip = [], max = 12) {
   const words = String(text).replace(PUBLIC_KEY_LINE, ' ').split('\n').flatMap((line) => [...line.matchAll(/\S+/g)]
     .map((m) => ({ w: edgeOf(line.slice(0, m.index), m[0], line.slice(m.index + m[0].length)), before: line.slice(0, m.index) })));
   for (const { w, before } of words) {
-    if (seen.has(w) || !mayBeSecret(w, cue) || isLabeledRecordId(w, before) || isCliOption(w, before)) continue;
+    if (seen.has(w) || !mayBeSecret(w, cue, NOUN_RIGHT_BEFORE.test(before)) || isLabeledRecordId(w, before) || isCliOption(w, before)) continue;
     seen.add(w);
     out.push(w);
   }
