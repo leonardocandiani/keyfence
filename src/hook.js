@@ -25,6 +25,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { scan, shape, presignedSpans, maskPresigned } = require('./detect');
 const { commonForm, FORMATTED } = require('./forms');
+const { entropy } = require('./entropy');
 const config = require('./config');
 const { WIN, slash, renameRetry } = require('./fsmode');
 
@@ -58,10 +59,58 @@ const LOCAL_TOOLS = new Set(['Bash', 'Read', 'Write', 'Edit', 'MultiEdit', 'Note
 // the script gets run, copied, pasted. Secrets belong in env files or stores.
 const CODE_FILE = /\.(sh|bash|zsh|fish|js|mjs|cjs|ts|tsx|jsx|py|rb|php|pl|go|rs|java|kt|swift|cs|lua|ps1|bat|cmd|html|vue|svelte|yml|yaml|toml|json|md|txt|ipynb)$/i;
 
+const GREP_WORD = /\b(?:egrep|fgrep|grep|rg|ag)\b/;
+const SHELL_WORD = /(?:[^\s'"]|'[^']*'|"[^"]*")+/g;
+const unquote = (t) => t.replace(/^(['"])(.*)\1$/, '$2');
+
+// `grep -o '^NAME=' file` and `grep -oF 'NAME=' file` print "NAME=" and nothing after it. The
+// pattern has to be one anchored literal ending in "=", with no -e, -f or context flag, so the
+// value of a line is never part of a match.
+const grepOnlyName = {
+  test(seg) {
+    const m = GREP_WORD.exec(seg);
+    if (!m) return false;
+    const words = seg.slice(m.index + m[0].length).match(SHELL_WORD) || [];
+    let only = false;
+    let fixed = false;
+    let pattern = null;
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (/^-[A-Za-z]*[efABC]/.test(w) || /^--(?:regexp|file|after|before|context)/.test(w)) return false;
+      if (/^-[A-Za-z]+$/.test(w)) { only = only || w.includes('o'); fixed = fixed || w.includes('F'); continue; }
+      if (w.startsWith('-')) continue;
+      pattern = unquote(w);
+      break;
+    }
+    if (!only || pattern === null) return false;
+    return /^\^[A-Za-z0-9_]+=$/.test(pattern) || (fixed && /^[A-Za-z0-9_]+=$/.test(pattern));
+  },
+};
+
+// The search pattern of grep/rg is a regex, not a path: `grep -rn "process\.env" src/` does not
+// read a .env. The pattern word is dropped before the segment is checked against the vault; every
+// other word (the files) still is. A pattern given with -e or a patterns file with -f is left alone.
+function withoutPattern(seg) {
+  const m = GREP_WORD.exec(seg);
+  if (!m) return seg;
+  const words = seg.slice(m.index + m[0].length).match(SHELL_WORD) || [];
+  if (words.some((w) => /^-[A-Za-z]*[ef]$/.test(w) || /^--(?:regexp|file)\b/.test(w))) return seg;
+  const out = [];
+  let dropped = false;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (!dropped && !w.startsWith('-')) { dropped = true; continue; }
+    if (/^-[A-Za-z]*[ABCmdD]$/.test(w)) { out.push(w, words[++i] || ''); continue; }
+    out.push(w);
+  }
+  return `${seg.slice(0, m.index + m[0].length)} ${out.join(' ')}`;
+}
+
 // Read forms that never print a value: counting, listing names, testing presence.
 // `grep -c KEY .env` is fine; `grep KEY .env` prints the line.
 const SAFE_READ = [
   /\bgrep\b(?=[^|;&]*\s-[a-zA-Z]*[clqL])/, // grep -c / -l / -q / -L
+  grepOnlyName, // grep -o '^NAME=' file: prints the name, never the value
   /\bjq\b[^|;&]*['"]\s*(?:keys|keys_unsorted|length|type|has\([^)]*\))\s*['"]/, // jq 'keys'
   /\bcut\b(?=[^|;&]*-d\s*['"]?=)(?=[^|;&]*-f\s*1\b)/, // cut -d= -f1
   /\bawk\b(?=[^|;&]*-F\s*['"]?=)[^|;&]*\{\s*print\s+\$1\s*\}/, // awk -F= '{print $1}'
@@ -192,12 +241,22 @@ function vaultPrint() {
   return vaultPrints;
 }
 
+// A word marked without a label (pending, classifier, entropy, context, or a vault field that
+// is not a password) that is shorter than
+// six characters or has the entropy of a repeated letter (`aaa`, `=99`, `aaa-aaa`) is test data,
+// not a credential. A value the user labeled (`senha:`, `token:`) is never judged by this.
+const lowSignal = (p) => p.length < 6 || entropy(p) < 2;
+
+// An `NAME=value` pair or an absolute path is a line of a file, never one credential.
+const PAIR_OR_PATH = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S|\/[\w.-]+\/)/;
+
 // Does this vault value count as a secret? A login is not one, and neither is a
 // code identifier, file name or e-mail stored under a field the user never
 // called a password: that is a shape somebody once mistook for a credential.
 function secretField(field, value) {
   if (IDENTITY_ROLE.test(field)) return false;
-  return EXPLICIT_ROLE.test(field) || !commonForm(value);
+  if (EXPLICIT_ROLE.test(field)) return true;
+  return !commonForm(value) && !lowSignal(value) && !PAIR_OR_PATH.test(value);
 }
 
 function vaultHit(text) {
@@ -221,7 +280,7 @@ function taintIndex(list) {
     if (!x.h) continue;
     const weak = WEAK_RULES.has(x.rule) && x.d !== 'store';
     const prev = byHash.get(x.h);
-    byHash.set(x.h, { rule: x.rule, weak: weak && (!prev || prev.weak), stored: x.d === 'store' || Boolean(prev && prev.stored), identity: IDENTITY_ROLE.test(x.rule) });
+    byHash.set(x.h, { rule: x.rule, weak: weak && (!prev || prev.weak), stored: x.d === 'store' || Boolean(prev && prev.stored), labeled: x.rule === 'labeled' || Boolean(prev && prev.labeled), identity: IDENTITY_ROLE.test(x.rule) });
   }
   return byHash;
 }
@@ -238,6 +297,7 @@ function findTainted(text, list, confirmedOnly = false) {
     const e = byHash.get(hash(p));
     if (!e || e.identity) continue;
     if (e.weak && (FORMATTED(p) || commonForm(p))) continue;
+    if (e.weak && !e.labeled && lowSignal(p)) continue;
     // Saved under a field by shape alone (a function name kept as a "secret"): not a secret.
     if (e.stored && !e.weak && commonForm(p) && !EXPLICIT_ROLE.test(e.rule)) continue;
     if (confirmedOnly && e.weak) continue;
@@ -561,7 +621,7 @@ function vaultTarget(tool, input, cfg) {
   // Judge each segment on its own: `grep -c K .env && cat .env` must still fail.
   for (const seg of stripMessageArgs(stripHeredocs(String(input.command || ''))).split(/\|\||&&|[|;&\n]/)) {
     if (!reader.test(seg) || SAFE_READ.some((re) => re.test(seg))) continue;
-    for (const tok of seg.split(/[\s<>()'"`]+/)) if (tok && hit(tok)) return tok;
+    for (const tok of withoutPattern(seg).split(/[\s<>()'"`]+/)) if (tok && hit(tok)) return tok;
   }
   return null;
 }
@@ -783,4 +843,4 @@ async function main() {
   else if (ev === 'PostToolUse') onPostTool(d, cfg);
 }
 
-module.exports = { main, pieces, stripNotTyped, notTyped, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
+module.exports = { secretField, main, pieces, stripNotTyped, notTyped, PENDING_MS, locked, hash, statePath, vaultTarget, readState, writeState, taint, mark, pushNotice, captureText, fallbackText, WARN_TEXT };
