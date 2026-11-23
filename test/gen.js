@@ -80,7 +80,7 @@ const positives = [
   ['labeled', () => j('CLOUDFLARE_API_TOKEN=', r(40, URLSAFE))],
   ['labeled', () => j('fipe-api-', 'key=', r(32, HEX))], // hex under an explicit label is a key, not a hash
   ['url-param', () => j('https://api.', 'placa', 'fipe.com.br/v1/placa/ABC1D23?key=', r(32, HEX))],
-  ['url-param', () => j('https://example.io/v2/data?page=2&access_', 'token=', r(40, URLSAFE))],
+  ['url-param', () => j('https://example.io/v2/data?page=2&access_', 'token=', r(40, URLSAFE).replace(/r8_/g, 'r8-'))],
   ['labeled', () => j('VERCEL_TOKEN=', r(24))],
   ['labeled', () => j('"client_secret": "', r(32), '"')],
   ['labeled', () => j('senha: ', r(14, ALNUM + '!@#'))],
