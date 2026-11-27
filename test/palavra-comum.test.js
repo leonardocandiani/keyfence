@@ -32,13 +32,14 @@ const labels = ['api_key', 'token', 'secret', 'SISTEMA_API_KEY', 'access_token',
 // Uma fileira de pontos ou de marcas de ênfase no meio de uma palavra (sumário com
 // pontilhado, régua em markdown) travava a leitura das palavras: a expressão de borda
 // tinha quantificador aninhado e o tempo quadruplicava a cada dois caracteres. O
-// maintain diário ficou 3 dias preso num transcript assim. Roda em outro processo
+// maintain diário ficou 3 dias preso num transcript assim. A borda de edgeOf ainda
+// era quadrática: 200 mil caracteres levavam dezenas de segundos. Roda em outro processo
 // para o teste falhar por prazo em vez de travar a suíte.
 {
   const runs = ['.', '*', '_', '~', ':', '!', '?', ',', ';', '\u2026'];
   const script = `const { candidatesOf } = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'jev'))});
     for (const c of ${JSON.stringify(runs)}) {
-      for (const n of [60, 30000]) {
+      for (const n of [60, 200000]) {
         candidatesOf('capitulo' + c.repeat(n) + 'x fim');
         candidatesOf('a senha é capitulo' + c.repeat(n) + 'x');
       }
