@@ -221,7 +221,7 @@ function edgeOf(before, tok, after) {
   let w = tok;
   for (let prev = ''; prev !== w && w;) {
     prev = w;
-    w = w.replace(/[.,;:?]+$/, '');
+    w = w.replace(/(?<![.,;:?])[.,;:?]+$/, ''); // anchored at the run's start: linear on a long dot leader
     const first = w[0];
     const last = w[w.length - 1];
     if (w.length > 1 && (CLOSER[first] === last || (/["'`]/.test(first) && first === last))) w = w.slice(1, -1);
