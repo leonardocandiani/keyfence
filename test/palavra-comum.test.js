@@ -7,6 +7,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { r } = require('./gen');
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keyfence-palavra-'));
@@ -27,6 +28,24 @@ const check = (name, got, want) => cases.push({ name, got, want, ok: got === wan
 const zap = ['Whats', 'App'].join('');
 const words = [zap, 'GitHub', 'YouTube', 'PostgreSQL', 'Telegram', 'Instagram', 'LinkedIn', 'TikTok', 'OpenAI', 'MongoDB', 'WordPress'];
 const labels = ['api_key', 'token', 'secret', 'SISTEMA_API_KEY', 'access_token', 'client_secret'];
+
+// Uma fileira de pontos ou de marcas de ênfase no meio de uma palavra (sumário com
+// pontilhado, régua em markdown) travava a leitura das palavras: a expressão de borda
+// tinha quantificador aninhado e o tempo quadruplicava a cada dois caracteres. O
+// maintain diário ficou 3 dias preso num transcript assim. Roda em outro processo
+// para o teste falhar por prazo em vez de travar a suíte.
+{
+  const runs = ['.', '*', '_', '~', ':', '!', '?', ',', ';', '\u2026'];
+  const script = `const { candidatesOf } = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'jev'))});
+    for (const c of ${JSON.stringify(runs)}) {
+      for (const n of [60, 30000]) {
+        candidatesOf('capitulo' + c.repeat(n) + 'x fim');
+        candidatesOf('a senha é capitulo' + c.repeat(n) + 'x');
+      }
+    }`;
+  const done = spawnSync(process.execPath, ['-e', script], { timeout: 20000 });
+  check('fileira longa de pontuação no meio da palavra termina no prazo', done.status, 0);
+}
 
 for (const w of words) {
   const caught = labels.filter((l) => scan(`${l}=${w}`).findings.length || scan(`${l}: ${w}`, { message: true }).findings.length

@@ -108,8 +108,10 @@ const NOT_A_VALUE = (w) => /^--[a-z][a-z0-9-]*(?:=[\w.,:/-]*)?$/.test(w) || /^\p
 // reader truncates. What is left is a word, or the block's own `[T612]` tag.
 // `!?,;` close a sentence ("nunca esquecer!", "obrigado!"): a plain word with them is talk, not a
 // password, unless a credential noun sits right before it ("a senha é flamengo!").
-const MARKUP_EDGES = /^[*_~]+|(?:[*_~]+|[:.…]+)+$/gu;
-const SENTENCE_EDGES = /^[*_~]+|(?:[*_~]+|[:.…!?,;]+)+$/gu;
+// One class per edge, anchored at the start of its run: nested quantifiers here took
+// exponential time on a dot leader (`capitulo.......x`) and froze the daily maintain.
+const MARKUP_EDGES = /^[*_~]+|(?<![*_~:.…])[*_~:.…]+$/gu;
+const SENTENCE_EDGES = /^[*_~]+|(?<![*_~:.…!?,;])[*_~:.…!?,;]+$/gu;
 const PLAIN_WORD = /^(?:\p{Lu}?\p{Ll}+|\p{Lu}+)$/u;
 const isMarkedUpWord = (w, afterCredentialNoun = false) => {
   const core = w.replace(afterCredentialNoun ? MARKUP_EDGES : SENTENCE_EDGES, '');
