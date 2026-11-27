@@ -427,6 +427,10 @@ keyfence maintain          # plan for every env file keyfence ever wrote to
 keyfence maintain --install  # run `maintain --apply` every day at 09:30 (launchd, headless)
 ```
 
+- **The daily run has a ceiling.** `maintain --apply` does its work in a child
+  process and aborts it after `maintain.timeoutMinutes` (60 by default, `0`
+  turns it off), then runs `maintain.onFailure`, the same notice a failing run
+  sends. A stuck run no longer sits there for days.
 - **Old generic names get real ones.** A value saved long ago as `PASSWORD` is
   looked up in the message it came from (in the Claude Code session logs, inside
   keyfence, never printed), and the credential is rebuilt: `PASSWORD` becomes

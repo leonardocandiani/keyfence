@@ -8,7 +8,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const vault = require('./vault');
 const { tidyFile } = require('./tidy');
 const { registered, unreadable } = require('./capture');
@@ -18,6 +18,7 @@ const { commonForm } = require('./forms');
 const DAY = 86400e3;
 const STALE_DAYS = 90;
 const LABEL = 'com.keyfence.maintain';
+const SUPERVISED = 'KEYFENCE_MAINTAIN_SUPERVISED';
 const ageDays = (iso) => (iso ? (Date.now() - Date.parse(iso)) / DAY : Infinity);
 
 // The same value under a specific account and under service/default: the
@@ -125,6 +126,32 @@ function notifyFailure(err) {
   } catch { return false; }
 }
 
+// The daily run goes in a child process, so the ceiling still fires when the work
+// is stuck inside a synchronous loop, where a timer of its own never would (one
+// run once spun for three days). The child reports its own errors; the parent
+// reports what the child could not: running past the ceiling or being killed.
+function supervise(argv, minutes) {
+  const r = spawnSync(process.execPath, argv, {
+    stdio: 'inherit',
+    timeout: Math.ceil(minutes * 60000),
+    killSignal: 'SIGKILL',
+    env: { ...process.env, [SUPERVISED]: '1' },
+  });
+  if (r.status !== null) return r.status;
+  const why = r.error && r.error.code === 'ETIMEDOUT' ? `passed the ceiling of ${minutes} min and was aborted` : `was stopped by ${r.signal || (r.error && r.error.message)}`;
+  process.stderr.write(`maintain: ${why}\n`);
+  notifyFailure(new Error(why));
+  return 1;
+}
+
+// Minutes the daily run may take, or 0 when this process should do the work itself.
+function ceiling() {
+  if (process.env[SUPERVISED]) return 0;
+  const m = require('./config').load().maintain;
+  const minutes = Number(m && m.timeoutMinutes);
+  return minutes > 0 ? minutes : 0;
+}
+
 const expandHome = (p, home) => p.replace(/^~(?=\/|$)/, home);
 
 async function maintain({ apply = false, roots = null, home = os.homedir() } = {}) {
@@ -200,4 +227,4 @@ function uninstall() {
   return had;
 }
 
-module.exports = { isCommonWord, isCommonShape, dropFalsePositives, maintain, notifyFailure, install, uninstall, LABEL };
+module.exports = { isCommonWord, isCommonShape, dropFalsePositives, maintain, notifyFailure, supervise, ceiling, install, uninstall, LABEL };

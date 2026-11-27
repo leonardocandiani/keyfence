@@ -123,6 +123,24 @@ function log(cwd, text) {
   check('a notice command that fails does not hide the original error', notifyFailure(new Error('boom')), false);
   fs.writeFileSync(cfgFile, JSON.stringify({ maintain: null }));
   check('a config with maintain: null does not throw out of the notifier', notifyFailure(new Error('boom')), false);
+  // the daily run has a ceiling: past it the work is aborted and somebody is told
+  const cli = path.join(__dirname, '..', 'bin', 'keyfence.js');
+  const vazio = fs.mkdtempSync(path.join(tmp, 'vazio-'));
+  const daily = (timeoutMinutes) => {
+    fs.rmSync(aviso, { force: true });
+    fs.writeFileSync(cfgFile, JSON.stringify({ discover: { roots: [vazio] }, maintain: { timeoutMinutes, onFailure: [process.execPath, '-e', 'require("fs").appendFileSync(process.argv[1], process.argv[2])', aviso, '{error}'] } }));
+    const env = { ...process.env, HOME: vazio, USERPROFILE: vazio, KEYFENCE_CONFIG: cfgFile, KEYFENCE_REGISTRY: path.join(vazio, 'registry.json'), KEYFENCE_VAULT_DIR: path.join(vazio, 'vault'), KEYFENCE_LOGS_DIR: path.join(vazio, 'logs') };
+    const r = require('child_process').spawnSync(process.execPath, [cli, 'maintain', '--apply'], { env, encoding: 'utf8', timeout: 60000 });
+    return { status: r.status, out: `${r.stdout}${r.stderr}`, told: fs.existsSync(aviso) ? fs.readFileSync(aviso, 'utf8') : 'nobody' };
+  };
+  const dentro = daily(5);
+  check('a run inside the ceiling ends well', dentro.status, 0);
+  check('...prints its report', /^maintain: applied/m.test(dentro.out), true);
+  check('...and tells nobody', dentro.told, 'nobody');
+  const fora = daily(0.0001);
+  check('a run past the ceiling exits with an error', fora.status, 1);
+  check('...says so in the log', /passed the ceiling of 0\.0001 min/.test(fora.out), true);
+  check('...and tells somebody once', fora.told, 'passed the ceiling of 0.0001 min and was aborted');
   process.env.KEYFENCE_CONFIG = ISOLATED_CONFIG;
 
   // a value printed by a `!` command is not a typed message, and never the whole secret

@@ -44,7 +44,7 @@ const COMMANDS = {
   uninstall: { flags: ['--dry-run', '--settings'], usage: 'keyfence uninstall [--dry-run] [--settings <path>]' },
   config: { flags: [], usage: 'keyfence config' },
   discover: { flags: ['--apply', '--depth'], usage: 'keyfence discover [dir...] [--depth N] [--apply]  (find credentials in .env files and shell rc files; without --apply: list only)' },
-  maintain: { flags: ['--apply', '--install', '--uninstall'], usage: 'keyfence maintain [--apply] [--install|--uninstall]  (tidy, merge duplicates, list what to rotate; --install runs it daily)' },
+  maintain: { flags: ['--apply', '--install', '--uninstall'], usage: 'keyfence maintain [--apply] [--install|--uninstall]  (tidy, merge duplicates, list what to rotate; --install runs it daily; --apply is aborted past maintain.timeoutMinutes)' },
   tidy: { flags: ['--apply'], usage: 'keyfence tidy [env-file...] [--apply]  (without --apply: show the plan only)' },
   conta: { flags: [], usage: 'keyfence conta <serviço>  (what is saved for an account at a service and what is missing: login, password, token, recovery e-mail)' },
   secret: { flags: [], usage: 'keyfence secret add|rotate|list|show|policy|revoke|reactivate|rm (values only at a hidden terminal prompt)' },
@@ -268,6 +268,11 @@ async function cmdMaintain(flags) {
   const m = require('./maintain');
   if (flags.install) { const r = m.install(); return process.stdout.write(`maintain: scheduled ${r.schedule}\nplist: ${tilde(r.plist)}\nlog: ${tilde(r.log)}\n`); }
   if (flags.uninstall) return process.stdout.write(m.uninstall() ? 'maintain: schedule removed\n' : 'maintain: no schedule installed (no-op)\n');
+  const minutes = flags.apply ? m.ceiling() : 0;
+  if (minutes) {
+    process.exitCode = m.supervise([path.resolve(__dirname, '..', 'bin', 'keyfence.js'), 'maintain', '--apply'], minutes);
+    return;
+  }
   let r;
   try { r = await m.maintain({ apply: Boolean(flags.apply) }); } catch (e) { if (flags.apply) m.notifyFailure(e); throw e; }
   const renamed = r.tidied.flatMap((t) => t.changes.map((c) => ({ file: tilde(t.file), old: c.old, record: c.alias, new: c.names.join(' ') })));
