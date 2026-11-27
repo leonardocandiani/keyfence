@@ -31,8 +31,9 @@ const DEFAULTS = {
   redactOutput: true,
   // Where `discover` and the daily `maintain` look for credentials already on disk.
   discover: { roots: ['~'], depth: 5 },
-  // Command run when the daily `maintain --apply` fails: [program, ...args], `{error}` is the message. null: none.
-  maintain: { onFailure: null },
+  // `maintain --apply` is aborted past `timeoutMinutes` (0: no ceiling). `onFailure` is the command
+  // run when it fails or is aborted: [program, ...args], `{error}` is the message. null: none.
+  maintain: { onFailure: null, timeoutMinutes: 60 },
   // Hours a tainted secret stays protected in a session.
   ttlHours: 12,
   // Taint high-entropy strings with no label or known prefix when they appear in
