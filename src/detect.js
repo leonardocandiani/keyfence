@@ -13,6 +13,7 @@
 
 const { rules } = require('./rules');
 const { entropy } = require('./entropy');
+const { markdownFields } = require('./markdown');
 const { isCamelIdentifier, commonForm, isAutonomiaEventId, isEmail, PUBLIC_KEY } = require('./forms');
 
 // Labels in English, Portuguese and Spanish. The value is the first run of
@@ -336,6 +337,44 @@ function scanLabeled(text, message = false) {
   return out;
 }
 
+// A markdown field or cell mostly holds a word, a type, a masked value or an
+// amount; only what is left after those is judged like any labeled value.
+const MD_NOT_A_VALUE = [
+  /^[[({<].*[\])}>]$/, // [redacted], (empty), a link
+  /^[•·*xX._-]+$/, // masked
+  /^(?:n?(?:var)?char|(?:var)?binary|string)\(\d+\)$/i, // a column type in a schema table
+  /^[\w./-]+\.[A-Za-z]{1,4}:\d+$/, // file:line
+  /^\{.*\}.?$/, // a template: {value:.1f}%
+  /^@[a-z]+(?:-[a-z]+)*$/, // a team or user handle
+];
+// varchar(255), getToken(). Under a password label parentheses are password
+// characters, and only an empty call is code.
+const MD_CALL = /^[A-Za-z_$][\w$.]*\(.*\)$/;
+const MD_EMPTY_CALL = /^[A-Za-z_$][\w$.]*\(\)$/;
+// Amounts, versions, durations, ranges: under a password label digits are a PIN instead.
+const MD_AMOUNT = /^(?:R\$|US\$|\$|€)?\d[\d.,:/%\p{Pd}]*(?:\/[A-Za-z]{1,6}|[a-z]{1,3})?$/u;
+// A word, Word, WORD or camelCase, alone or joined: a field name or a description.
+const MD_WORD = /^(?:\p{Lu}+|\p{Lu}?\p{Ll}+(?:\p{Lu}\p{Ll}+)*)$/u;
+const isWords = (v) => v.replace(/[.,;]$/, '').split(/[-/_.:]/).every((w) => MD_WORD.test(w));
+
+function markdownSecret(v, label, message) {
+  const password = PASSWORD_LABEL.test(label);
+  // Only a passphrase has spaces; a command has options and two code spans keep their marks.
+  if (/\s/.test(v) && (!password || /`|(^|\s)-/.test(v))) return false;
+  if (PLACEHOLDER.test(v) || PUBLIC_KEY.test(v) || MD_NOT_A_VALUE.some((re) => re.test(v))) return false;
+  if ((password ? MD_EMPTY_CALL : MD_CALL).test(v)) return false;
+  if (!password && (MD_AMOUNT.test(v) || isEmail(v) || PUBLIC_URL.test(v))) return false; // a price, a PIX key, an endpoint
+  // `| senha | obrigatória |` describes the field; typed in a message a word may be the password.
+  if (!(password && message) && isWords(v)) return false;
+  return looksSecret(v, label, message);
+}
+
+function scanMarkdown(text, message = false) {
+  return markdownFields(text, LABEL_KEYWORDS, (l) => PASSWORD_LABEL.test(l))
+    .filter((f) => markdownSecret(f.value, f.label, message))
+    .map(({ label, value, start }) => ({ rule: 'labeled', name: `Labeled secret (${label})`, value, start, end: start + value.length, confidence: 'medium' }));
+}
+
 // Credentials in URL query strings: ?key=, &token=, ?access_token=, ?apikey=.
 const URL_RE = /https?:\/\/[^\s"'`<>]+/g;
 const URL_PARAM = /^(?:key|api[_-]?key|apikey|x-api-key|access[_-]?token|token|auth|auth[_-]?token|secret|client[_-]?secret|password|pass|pwd|senha|sig|signature)$/i;
@@ -594,7 +633,7 @@ function scan(raw, opts = {}) {
   if (!raw || typeof raw !== 'string') return { findings: [], ambiguous: [] };
   const text = maskTracking(raw);
   const lower = text.toLowerCase();
-  const known = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanUrlParams(text)]);
+  const known = resolve([...scanRules(text, lower), ...scanLabeled(text, opts.message), ...scanMarkdown(text, opts.message), ...scanUrlParams(text)]);
   const findings = opts.message ? resolve([...known, ...scanContextual(text, known)]) : known;
   const ambiguous = opts.ambiguous ? scanAmbiguous(text, findings) : [];
   return { findings, ambiguous };
