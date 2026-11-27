@@ -240,6 +240,9 @@ keyfence rules
   SendGrid, Mailgun, Resend, Postmark, Supabase (access and secret keys), Notion,
   Linear, Shopify, Atlassian, Figma, Sentry, private keys, JWTs, Bearer headers,
   and URLs with embedded passwords.
+- **Markdown layouts**: a bold field (`**Senha:** ...`), a table row whose first
+  cell is the label and every row under a password column. A quoted password may
+  have spaces; types, amounts, masked values and plain words are left alone.
 - **Labeled values**: `token=...`, `"client_secret": "..."`, `senha: ...`,
   `export DB_PASSWORD=...`, in English, Portuguese and Spanish, filtered for
   placeholders (`${VAR}`, `<your-token>`, `changeme`), code (`options.apiKey`,

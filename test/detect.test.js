@@ -4,7 +4,7 @@
 // generator many times because the content is random.
 const { scan } = require('../src/detect');
 const WEAK = new Set(require('../src/rules').rules.filter((r) => r.weak).map((r) => r.id));
-const { positives, negatives, ambiguous } = require('./gen');
+const { positives, negatives, ambiguous, r } = require('./gen');
 
 const ROUNDS = Number(process.env.ROUNDS || 50);
 let fail = 0;
@@ -177,6 +177,79 @@ for (const [text, secret, message] of [
   ];
   for (const [text, secret] of cases) {
     if (!scan(text, { message: true }).findings.some((f) => f.value === secret)) { fail++; fps.push(`  label after another line, value missed: ${text.replace(secret, '<VALUE>').replace(/\n/g, '\\n')}`); }
+  }
+}
+
+// A credential written as markdown (bold field, table row, password column): the emphasis marks
+// and the pipes sit where the labeled rule expects `:` or `=`. A real password stayed seven months in
+// a report in this shape (27/11/2026). Both modes: a file read and a pasted message.
+{
+  const pw = ['Zq7', r(5)].join(''); // always a digit, so it never passes for a word
+  const long = ['Zq7!', r(10)].join('');
+  const key = ['Vb4', r(25)].join('');
+  const caught = [
+    [`| **Senha** | \`${pw}\` |`, pw],
+    [`| Senha | ${pw} |`, pw],
+    [`| **Campo** | **Valor** |\n|---|---|\n| **Password** | **${long}** |`, long],
+    [`> | Senha do painel | \`${long}\` | trocar depois |`, long],
+    [`| API Key | \`${key}\` |`, key],
+    [`**Senha:** \`${pw}\``, pw],
+    [`**Senha**: ${pw}`, pw],
+    [`- **Password:** ${long} (conta de teste)`, long],
+    [`__Token__: \`${key}\``, key],
+    [`**Client Secret:** "${key}"`, key],
+    [`| Usuário | Senha |\n|:---|---:|\n| joao | \`${pw}\` |\n| maria | ${long} |`, pw],
+    [`| Usuário | Senha |\n|:---|---:|\n| joao | \`${pw}\` |\n| maria | ${long} |`, long],
+    [`| **Senha** | \`a|${pw}\` |`, `a|${pw}`],
+    [`| Senha | 7392-0418-55 |`, '7392-0418-55'],
+    [`**Password:** "cavalo ${pw} bateria grampo"`, `cavalo ${pw} bateria grampo`],
+    [`| Senha | \`cavalo ${pw} bateria\` |`, `cavalo ${pw} bateria`],
+    [`**Password:** Cavalo(${4000 + 271})`, `Cavalo(${4000 + 271})`], [`**Password:** "Cavalo(${4000 + 271})"`, `Cavalo(${4000 + 271})`],
+    [`| Senha | Cavalo(${4000 + 271}) |`, `Cavalo(${4000 + 271})`],
+    [`Usuário | Senha\n--- | ---\njoao | ${pw}\n\nfim`, pw],
+    [`Campo | Valor\n:--|--:\nSenha | \`${long}\``, long],
+    [`| Usuário | Senha\n|---|---\n| joao | ${pw}`, pw],
+  ];
+  const quiet = [
+    '| password | string |', '| password | `string` |', '| senha | obrigatória |', '| Senha | pré-definida |',
+    '| token | varchar(255) |', '| token | VARCHAR |', '| key | user.id |', '| secret | YOUR_SECRET |',
+    '| Senha | ******** |', '| Senha | `<SENHA>` |', '| Senha | [redigido] |', '| Senha | `$FIN_SENHA` |',
+    '| Input token | $15.00/MTok |', '| Output token | 1.234.567 |', '| Chave PIX | financeiro@exemplo.com.br |',
+    '| Token | https://exemplo.com.br/oauth/token |', '| Campo | Senha |\n|---|---|\n| tipo | texto |',
+    '| Senha | Senha do usuário |', '**Senha:** obrigatória', '**Token:** gerado no login a cada sessão',
+    '**Auth:** Header `Authorization`', '**Password:** `string` (required)', '**Chave:** placa_veiculo',
+    '**Senha:** use a do cofre', 'cat x | grep senha | head -5',
+    '| `/auth/b2b` | `B2BSignupPage` |', '- **Chave**: `senderId:conversaAtual`', '| AGENTE_API_KEY | `agent-handler.ts:42` |',
+    '| Token | `did_you:mean_match` |', '| auth-reviewer | Auth/Session |', '| Auth issues | @security-team |',
+    '- **Pass Rate:** {(passed/total)*100:.1f}%', `| Token TTL token | 1.2${String.fromCharCode(8211)}2.4s |`, '| TOKEN | Idêntico |', '| Secret | Settings |',
+    '| Token | `bun run test --watch` |', '**Chave:** "nome do campo no banco"',
+    '| pass | `node "$CLI" run --symptoms "x9" <app>` |', '**Senha:** getPassword()', '| Token | readToken(env2) |', '| senha | varchar(50) |', '| password | NVARCHAR(255) |', '| PASSWORD | `DB_PASSWORD_9` / `Chave-Dois9` |',
+    'grep senha access.log | wc -l\n---\n| fim', 'senha | Zq7semtabela\n\noutro texto', 'Usuário | Senha\ntexto solto | outro',
+    '---\nsenha | exemplo\n---', '  |> Map.put(:password, hashed)',
+  ];
+  for (const opts of [{}, { message: true }]) {
+    const mode = opts.message ? 'message' : 'file';
+    for (const [text, secret] of caught) {
+      const hit = scan(text, opts).findings.find((f) => f.value === secret);
+      if (!hit || text.slice(hit.start, hit.end) !== secret) { fail++; fps.push(`  markdown credential missed (${mode}): ${text.split(secret).join('<VALUE>').replace(pw, '<VALUE>').replace(long, '<VALUE>')}`); }
+    }
+  }
+  // Long runs of what the markdown reader looks for must not make it slow (the reader of words
+  // once froze the daily maintain for days). Another process, so a regression fails instead of hanging.
+  {
+    const script = `const { scan } = require(${JSON.stringify(require('path').join(__dirname, '..', 'src', 'detect'))});
+      const n = 100000;
+      for (const t of ['**' + ' '.repeat(n) + 'x', '**Senha:**' + ' '.repeat(n) + 'x y', '**Senha:** x' + ' '.repeat(n) + 'y',
+        '|---|---|\\n'.repeat(20000), 'a | b\\n--- | ---\\n' + '--- | ---\\n'.repeat(20000), '**Senha:** "' + 'a '.repeat(n),
+        '|' + ' |'.repeat(n), '**Senha**'.repeat(n / 10)]) scan(t, { message: true });`;
+    const done = require('child_process').spawnSync(process.execPath, ['-e', script], { timeout: 20000 });
+    if (done.status !== 0) { fail++; fps.push(`  markdown reader too slow or crashed on long input (status ${done.status})`); }
+  }
+
+  // A numeric password is a password when typed under a password column or cell.
+  if (!scan('| Senha | 739204 |', { message: true }).findings.some((f) => f.value === '739204')) { fail++; fps.push('  markdown numeric password missed (message)'); }
+  for (const text of quiet) {
+    if (scan(text).findings.length) { fail++; fps.push(`  markdown false positive: ${text}`); }
   }
 }
 
