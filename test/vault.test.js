@@ -75,6 +75,16 @@ const rejects = async (p) => { try { await p; return false; } catch { return tru
   check('policy: request needs a target', throws(() => vault.add('p/three', { v: 'x' }, { policy: { operations: ['request'] } })), true);
   check('policy: fill_map must use a real field', throws(() => vault.add('p/four', { v: 'x' }, { policy: { operations: ['browser.fill'], targets: ['a.io'], fill_map: { password: 'nope' } } })), true);
 
+  // a registry written by hand uses the long names: refusing them kept those values out of the vault, unmarked
+  for (const [long, short] of [['production', 'prod'], ['staging', 'test'], ['development', 'dev']]) {
+    const value = r(30);
+    const kept = await vault.upsert(`env/${long}`, { value }, { environment: long }).catch(() => null);
+    check(`environment ${long} is stored as ${short}`, kept && kept.environment, short);
+    const { salt, list } = vault.fingerprints();
+    check(`a value saved as ${long} is marked`, list.some((x) => x.fp === vault.fingerprint(salt, value)), true);
+  }
+  check('an unknown environment is still refused', await rejects(vault.upsert('env/other', { value: r(30) }, { environment: 'qa' })), true);
+
   // CLI: never a value, and adding needs a real terminal
   const cli = (args) => spawnSync(process.execPath, [path.join(BIN, 'keyfence.js'), ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], input: `${token}\n` });
   const add = cli(['secret', 'add', 'x/piped']);

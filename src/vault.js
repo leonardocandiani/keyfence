@@ -20,6 +20,8 @@ const { validatePolicy } = require('./policy');
 const SERVICE = 'keyfence-vault';
 const ALIAS = /^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*){1,5}$/;
 const ENVIRONMENTS = ['dev', 'test', 'prod'];
+// A registry written by hand uses the long names; refusing them would leave the value unmarked.
+const ENVIRONMENT_ALIASES = { development: 'dev', staging: 'test', production: 'prod' };
 
 const vaultDir = () => process.env.KEYFENCE_VAULT_DIR || path.join(os.homedir(), '.config', 'keyfence', 'vault');
 const vaultFile = () => path.join(vaultDir(), 'vault.json');
@@ -137,7 +139,7 @@ function sealFields(key, v, alias, version, fields) {
 /** Add a secret. `fields` is {name: Buffer|string}; values are wiped after sealing. */
 function add(alias, fields, meta = {}) {
   checkAlias(alias);
-  const env = meta.environment || 'dev';
+  const env = ENVIRONMENT_ALIASES[meta.environment] || meta.environment || 'dev';
   if (!ENVIRONMENTS.includes(env)) throw new Error(`environment must be one of ${ENVIRONMENTS.join(', ')}`);
   const policy = validatePolicy(meta.policy || {}, Object.keys(fields));
   const v = load();
