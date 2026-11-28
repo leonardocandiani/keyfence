@@ -238,8 +238,8 @@ keyfence rules
   webhook secrets), Asaas, Mercado Pago, Slack (tokens and webhooks), Discord
   (bot tokens and webhooks), Telegram bots, Meta / WhatsApp Cloud API, Twilio,
   SendGrid, Mailgun, Resend, Postmark, Supabase (access and secret keys), Notion,
-  Linear, Shopify, Atlassian, Figma, Sentry, private keys, JWTs, Bearer headers,
-  and URLs with embedded passwords.
+  Linear, Shopify, Atlassian, Figma, Sentry, `id|secret` tokens (Laravel
+  Sanctum), private keys, JWTs, Bearer headers, and URLs with embedded passwords.
 - **Markdown layouts**: a bold field (`**Senha:** ...`), a table row whose first
   cell is the label and every row under a password column. A quoted password may
   have spaces; types, amounts, masked values and plain words are left alone.

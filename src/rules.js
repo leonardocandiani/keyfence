@@ -82,6 +82,8 @@ const rules = [
     /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----[\s\S]{20,}?-----END (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/g,
     ['private key']),
   R('private-key-header', 'Private key (header only)', /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/g, ['private key']),
+  // id|secret. The secret needs upper case, lower case and a digit: number|hash (git log, database rows) is hex.
+  R('sanctum', 'API token in id|secret form (Laravel Sanctum)', /(?<![A-Za-z0-9_|])\d{1,12}(?:\||%7C)(?=[A-Za-z0-9]{0,63}[a-z])(?=[A-Za-z0-9]{0,63}[A-Z])(?=[A-Za-z0-9]{0,63}\d)[A-Za-z0-9]{40,64}(?![A-Za-z0-9])/g, ['|', '%7c']),
   R('jwt', 'JWT', /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, ['eyj']),
   R('bearer', 'Bearer token in header', /\b[Bb]earer\s+([A-Za-z0-9._~+/=-]{20,})/g, ['bearer'], 1, true),
 ];

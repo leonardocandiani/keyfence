@@ -76,6 +76,11 @@ const positives = [
   ['private-key', () => j('-----BEGIN OPENSSH ', 'PRIVATE KEY-----\n', r(64, ALNUM + '+/'), '\n-----END OPENSSH ', 'PRIVATE KEY-----')],
   ['jwt', () => j('ey', 'J', r(20, URLSAFE), '.ey', 'J', r(40, URLSAFE), '.', r(43, URLSAFE))],
   ['bearer', () => j('Authorization: Bear', 'er ', r(40, URLSAFE))],
+  // id|secret (Laravel Sanctum and panels built on it): the fixed head guarantees the three character classes
+  ['sanctum', () => j(r(4, '123456789'), '|', 'Qm7', r(37))],
+  ['sanctum', () => j('Authorization: Bear', 'er ', r(5, '123456789'), '|', 'Qm7', r(45))],
+  ['sanctum', () => j("K='", r(4, '123456789'), '|', 'Qm7', r(45), "'")],
+  ['sanctum', () => j('https://x.example/hook?t=', r(4, '123456789'), '%7C', 'Qm7', r(45))],
   // labeled values (no provider shape)
   ['labeled', () => j('CLOUDFLARE_API_TOKEN=', r(40, URLSAFE))],
   ['labeled', () => j('fipe-api-', 'key=', r(32, HEX))], // hex under an explicit label is a key, not a hash
@@ -136,6 +141,10 @@ const negatives = [
   'commit: 3f2a9c1d8e7b6a5f4d3c2b1a0f9e8d7c6b5a4f3e',
   'auth: SESSION_TTL=3600',
   'token = user == null ? none : user.token',
+  // number|hash as printed by git log or a database row: hex has one letter case, so it is not id|secret
+  j('1759300000|', '3f9a1c2e8b7d6f5a4c3b2a1908f7e6d5c4b3a291'),
+  j('4821|', '3f9a1c2e8b7d6f5a'.repeat(4)),
+  j('12|', 'AbstractSingletonProxyFactoryBeanConfigurationSupport'),
   'secret_key: sk-ant-api03-...',
   'token: light_theme_v2',
 ];
